@@ -1,0 +1,31 @@
+programa ejemplo
+procesos
+    proceso recorrerAvenida(E numAv: numero)
+    variables
+        paso : numero
+        ok : booleano
+    comenzar
+        ok := F
+        paso := 0
+        Pos(numAv, 1)
+        repetir paso
+            mover
+    fin
+areas
+    ciudad: AreaC (1,1,100,100)
+robots
+    robot robot1
+    variables
+        num : numero
+        ok : booleano
+    comenzar
+        num := 1
+        ok := V
+        recorrerAvenida(num)
+    fin
+variables
+    R_info: robot1
+comenzar
+    AsignarArea(R_info, ciudad)
+    Iniciar(R_info, 1,1)
+fin

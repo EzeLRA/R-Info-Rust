@@ -1,7 +1,7 @@
 use std::fmt;
 
 // Error del compilador
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CompilerError {
     pub message: String,
     pub line: usize,
@@ -18,8 +18,8 @@ impl CompilerError {
     }
 }
 
-impl fmt::Display for CompilerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for CompilerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} (línea {}, columna {})", self.message, self.line, self.column)
     }
 }

@@ -8,6 +8,7 @@ pub enum TokenType {
     Str,
     Num,
     Bool,
+    BoolValue,
     Keyword,
     Indent,
     Dedent,
@@ -35,6 +36,7 @@ impl TokenType {
             TokenType::Str => "STRING",
             TokenType::Num => "NUMBER",
             TokenType::Bool => "BOOLEAN",
+            TokenType::BoolValue => "BOOLEAN_VALUE",
             TokenType::Keyword => "KEYWORD",
             TokenType::Indent => "INDENT",
             TokenType::Dedent => "DEDENT",
@@ -55,8 +57,8 @@ impl TokenType {
     }
 }
 
-impl fmt::Display for TokenType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for TokenType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
@@ -85,8 +87,8 @@ pub struct Keywords {
     pub basic_keywords: HashMap<&'static str, &'static str>,
     pub control_sentences: HashMap<&'static str, &'static str>,
     pub elemental_instructions: HashMap<&'static str, &'static str>,
-    pub keyword_map: HashMap<&'static str, TokenType>,
-    pub types_defined: HashMap<&'static str, TokenType>,
+    pub keyword_map: HashMap<String, TokenType>,
+    pub types_defined: HashMap<String, TokenType>,
 }
 
 impl Keywords {
@@ -136,23 +138,23 @@ impl Keywords {
         elemental_instructions.insert("ELEMENTAL_INSTRUCTION25", "RecibirMensaje");
 
         let mut types_defined = HashMap::new();
-        types_defined.insert("numero", TokenType::Identifier);
-        types_defined.insert("booleano", TokenType::Identifier);
-        types_defined.insert("V", TokenType::Identifier);
-        types_defined.insert("F", TokenType::Identifier);
+        types_defined.insert("numero".to_string(), TokenType::Num);
+        types_defined.insert("booleano".to_string(), TokenType::Bool);
+        types_defined.insert("V".to_string(), TokenType::BoolValue);
+        types_defined.insert("F".to_string(), TokenType::BoolValue);
 
         let mut keyword_map = HashMap::new();
 
         for (_, value) in basic_keywords.iter() {
-            keyword_map.insert(*value, TokenType::Keyword);
+            keyword_map.insert(value.to_string(), TokenType::Keyword);
         }
 
         for (_, value) in control_sentences.iter() {
-            keyword_map.insert(*value, TokenType::ControlSentence);
+            keyword_map.insert(value.to_string(), TokenType::ControlSentence);
         }
 
         for (_, value) in elemental_instructions.iter() {
-            keyword_map.insert(*value, TokenType::ElementalInstruction);
+            keyword_map.insert(value.to_string(), TokenType::ElementalInstruction);
         }
 
         Self {
@@ -190,13 +192,4 @@ impl Default for Keywords {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// Funciones auxiliares para mantener compatibilidad
-pub fn create_keyword_map() -> HashMap<&'static str, TokenType> {
-    Keywords::new().keyword_map
-}
-
-pub fn create_type_map() -> HashMap<&'static str, TokenType> {
-    Keywords::new().types_defined
 }

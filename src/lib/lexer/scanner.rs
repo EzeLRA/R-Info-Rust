@@ -51,7 +51,7 @@ impl<'a> Lexer<'a> {
         }
     }
     
-    pub fn tokenize(&mut self) -> Result<Vec<Token>,CompilerError> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, CompilerError> {
         self.tokens.clear();
         self.position = 0;
         self.line = 1;
@@ -132,7 +132,7 @@ impl<'a> Lexer<'a> {
         Ok(self.tokens.clone())
     }
     
-    fn handle_indentation(&mut self) -> Result<(),CompilerError> {
+    fn handle_indentation(&mut self) -> Result<(), CompilerError> {
         let start_pos = self.position;
         let mut indent = 0;
         
@@ -215,7 +215,7 @@ impl<'a> Lexer<'a> {
         }
     }
     
-    fn read_number(&mut self) -> Result<(),CompilerError> {
+    fn read_number(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
         let start_pos = self.position;
@@ -226,7 +226,6 @@ impl<'a> Lexer<'a> {
             self.column += 1;
         }
         
-        // TODO: Añadir soporte para decimales y exponentes
         let value: String = self.chars[start_pos..self.position].iter().collect();
         
         self.tokens.push(Token::new(
@@ -239,7 +238,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    fn read_identifier(&mut self) -> Result<(),CompilerError> {
+    fn read_identifier(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
         let start_pos = self.position;
@@ -296,7 +295,7 @@ impl<'a> Lexer<'a> {
         )
     }
     
-    fn read_string(&mut self, quote: char) -> Result<(),CompilerError> {
+    fn read_string(&mut self, quote: char) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
         
@@ -366,12 +365,12 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    fn read_operator(&mut self) -> Result<(),CompilerError> {
+    fn read_operator(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
         let first_char = self.chars[self.position];
         
-        // Operadores de un carácter
+        // Operadores de un carácter específicos
         if first_char == ',' || first_char == ':' {
             self.position += 1;
             self.column += 1;
@@ -403,7 +402,7 @@ impl<'a> Lexer<'a> {
             let two_char_op = format!("{}{}", first_char, second_char);
             
             match two_char_op.as_str() {
-                ":=" | "==" | "<=" | ">=" | "&" | "|" | "~" => {
+                ":=" | "==" | "<=" | ">=" => {
                     value = two_char_op;
                     self.position += 1;
                     self.column += 1;
@@ -434,7 +433,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    fn read_comment(&mut self) -> Result<(),CompilerError> {
+    fn read_comment(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
         
@@ -465,7 +464,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    fn read_parameter(&mut self) -> Result<(),CompilerError> {
+    fn read_parameter(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
         
@@ -501,7 +500,7 @@ impl<'a> Lexer<'a> {
         
         self.tokens.push(Token::new(
             TokenType::Parameter,
-            value.trim().to_string(),
+            value,
             start_line,
             start_column
         ));
