@@ -17,15 +17,22 @@ pub enum TokenType {
     Identifier,
     EndFile,
     // Operadores específicos
+    Declaration,
     Assign,
     Equals,
+    NotEquals,
+    Less,
     LessEqual,
     GreaterEqual,
+    Greater,
     And,
     Or,
     Not,
-    Colon,
     Comma,
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
 }
 
 impl TokenType {
@@ -44,15 +51,22 @@ impl TokenType {
             TokenType::ElementalInstruction => "ELEMENTAL_INSTRUCTION",
             TokenType::Identifier => "IDENTIFIER",
             TokenType::EndFile => "EOF",
+            TokenType::Declaration => "DECLARATION",
             TokenType::Assign => "ASSIGN",
             TokenType::Equals => "EQUALS",
+            TokenType::NotEquals => "NOT_EQUALS",
             TokenType::LessEqual => "LESS_EQUAL",
+            TokenType::Less => "LESS",
+            TokenType::Greater => "GREATER",
             TokenType::GreaterEqual => "GREATER_EQUAL",
             TokenType::And => "AND",
             TokenType::Or => "OR",
             TokenType::Not => "NOT",
-            TokenType::Colon => "COLON",
             TokenType::Comma => "COMMA",
+            TokenType::Plus => "PLUS",
+            TokenType::Minus => "MINUS",
+            TokenType::Multiply => "MULTIPLY",
+            TokenType::Divide => "DIVIDE"
         }
     }
 }

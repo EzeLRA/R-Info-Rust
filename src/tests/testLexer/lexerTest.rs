@@ -41,4 +41,38 @@ mod testing_lexer{
         }
         
     }
+
+    #[test]
+    fn test_control_sentences() {
+        let source = fs::read_to_string("./src./tests/codigo.txt");
+        match source {
+            Ok(content) => {
+                let mut lexer = Lexer::new(&content);
+                
+                let control_sentences = [
+                    "si", "sino", "mientras", "repetir"
+                ];
+
+                if let Ok(tokens) = lexer.tokenize(){
+                    let control_sentence_tokens: Vec<_> = tokens
+                    .iter()
+                    .filter(|token| token.token_type == TokenType::ControlSentence)
+                    .collect();
+
+                    for token in control_sentence_tokens.iter(){
+                        
+                        assert!(control_sentences.contains(&token.value.as_str()), "Unexpected control sentence: {}", token.value);
+                    }    
+                }else{
+                    panic!("Failed to tokenize source code");
+                }
+                
+            }
+            Err(e) => {
+                panic!("Failed to read source file: {}", e);
+            }
+        }
+        
+    }
+
 }

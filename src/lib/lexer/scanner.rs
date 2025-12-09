@@ -203,7 +203,7 @@ impl<'a> Lexer<'a> {
     }
     
     fn is_operator(&self, c: char) -> bool {
-        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '!' | '&' | '|' | '~')
+        matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '&' | '|' | '~')
     }
     
     fn skip_whitespace(&mut self) {
@@ -368,69 +368,81 @@ impl<'a> Lexer<'a> {
     fn read_operator(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
-        let first_char = self.chars[self.position];
         
-        // Operadores de un carácter específicos
-        if first_char == ',' || first_char == ':' {
-            self.position += 1;
-            self.column += 1;
-            
-            let token_type = match first_char {
-                ',' => TokenType::Comma,
-                ':' => TokenType::Colon,
-                _ => unreachable!(),
-            };
-            
-            self.tokens.push(Token::new(
-                token_type,
-                first_char.to_string(),
+        // Verificar si hay al menos un carácter disponible
+        if self.position >= self.chars.len() {
+            return Err(CompilerError::new(
+                "Operador incompleto",
                 start_line,
                 start_column
             ));
-            
-            return Ok(());
         }
         
-        // Operadores de uno o dos caracteres
-        let mut value = String::from(first_char);
-        self.position += 1;
-        self.column += 1;
+        let first_char = self.chars[self.position];
         
-        // Verificar si es un operador de dos caracteres
-        if self.position < self.chars.len() {
-            let second_char = self.chars[self.position];
+        let mut token = TokenType::Operator;
+
+        // Primero intentar identificar operadores de dos caracteres
+        if self.position + 1 < self.chars.len() {
+            let second_char = self.chars[self.position + 1];
             let two_char_op = format!("{}{}", first_char, second_char);
             
+            
+            // Lista de operadores de dos caracteres
             match two_char_op.as_str() {
-                ":=" | "==" | "<=" | ">=" => {
-                    value = two_char_op;
-                    self.position += 1;
-                    self.column += 1;
+                ":=" => {token = TokenType::Assign;}
+                "<>" => {token = TokenType::NotEquals;}
+                "<=" => {token = TokenType::LessEqual;}
+                ">=" => {token = TokenType::GreaterEqual;}
+                _ => {
+                    // No es un operador de dos caracteres, continuar con uno
                 }
-                _ => {}
+            }
+            if token != TokenType::Operator {
+                self.tokens.push(Token::new(
+                    token,
+                    two_char_op.clone(),
+                    start_line,
+                    start_column
+                ));
+                self.position += 2;
+                self.column += 2;
+                return Ok(());
+            }
+        }
+        // Si no es un operador de dos caracteres, intentar con uno
+        match first_char {
+            ',' => {token = TokenType::Comma;}
+            ':' => {token = TokenType::Declaration;}
+            '&' => {token = TokenType::And;}
+            '|' => {token = TokenType::Or;}
+            '~' => {token = TokenType::Not;}
+            '+' => {token = TokenType::Plus;}
+            '-' => {token = TokenType::Minus;}
+            '*' => {token = TokenType::Multiply;}
+            '/' => {token = TokenType::Divide;}
+            '=' => {token = TokenType::Equals;}
+            '<' => {token = TokenType::Less;}
+            '>' => {token = TokenType::Greater;}
+            _ => {
+                return Err(CompilerError::new(
+                    format!("Operador no reconocido: '{}'", first_char),
+                    start_line,
+                    start_column
+                ));
             }
         }
         
-        // Determinar el tipo específico del operador
-        let token_type = match value.as_str() {
-            ":=" => TokenType::Assign,
-            "==" => TokenType::Equals,
-            "<=" => TokenType::LessEqual,
-            ">=" => TokenType::GreaterEqual,
-            "&" => TokenType::And,
-            "|" => TokenType::Or,
-            "~" => TokenType::Not,
-            _ => TokenType::Operator,
-        };
-        
         self.tokens.push(Token::new(
-            token_type,
-            value,
+            token,
+            first_char.to_string(),
             start_line,
             start_column
         ));
+        self.position += 1;
+        self.column += 1;
         
-        Ok(())
+        return Ok(());
     }
     
     fn read_comment(&mut self) -> Result<(), CompilerError> {
@@ -508,6 +520,7 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
+    
     // Método de utilidad para depuración
     pub fn debug_tokens(&self) {
         println!("=== Tokens generados ===");
@@ -530,5 +543,5 @@ impl<'a> Lexer<'a> {
         }
         
         stats
-    }
-}
+    }   
+}   

@@ -5,15 +5,17 @@ mod lib;
 mod tests;
 
 fn main() {
-    let source_code = fs::read_to_string("./src/codigo.txt");
-    print!("{}", source_code.unwrap());
-    /* 
-    println!("\nArchivos en el directorio:");
-    if let Ok(entries) = fs::read_dir("./src") {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                println!("  {:?}", entry.path());
+    let source = fs::read_to_string("src/tests/codigo.txt")
+        .expect("Failed to read source file");
+    let mut lx = Lexer::new(&source);
+    match lx.tokenize() {
+        Ok(tokens) => {
+            for token in tokens {
+                println!("{:?}", token);
             }
         }
-    }*/
+        Err(e) => {
+            eprintln!("Lexing error: {}", e);
+        }
+    }
 }
