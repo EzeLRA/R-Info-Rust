@@ -38,7 +38,7 @@ impl<'a> Parser<'a> {
         let mut body = Vec::new();
         
         // Parsear secciones en el orden que aparecen
-        if self.matches(TokenType::Keyword, Some("procesos")) {
+        if self.matches_value(TokenType::Keyword, "procesos") {
             body.push(self.parse_procesos()?);
         }
         
@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
         let mut procesos = Vec::new();
         
         while !self.is_at_end() && !self.is_next_section() {
-            if self.matches(TokenType::Keyword, Some("proceso")) {
+            if self.matches_value(TokenType::Keyword, "proceso") {
                 procesos.push(self.parse_proceso()?);
             } else {
                 self.advance()?;
@@ -81,7 +81,7 @@ impl<'a> Parser<'a> {
             parameters.push(self.parse_parameter(&param_token.value)?);
         }
         
-        if self.matches(TokenType::Keyword, Some("variables")) {
+        if self.matches_value(TokenType::Keyword, "variables") {
             let var_section = self.parse_variables_section()?;
             variables = Some(Box::new(var_section));
         }
@@ -184,7 +184,7 @@ impl<'a> Parser<'a> {
         let mut robots = Vec::new();
         
         while !self.is_at_end() && !self.is_next_section() {
-            if self.matches(TokenType::Keyword, Some("robot")) {
+            if self.matches_value(TokenType::Keyword, "robot") {
                 robots.push(self.parse_robot()?);
             } else {
                 self.advance()?;
@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
         let name = self.consume(TokenType::Identifier, None)?.value.clone();
         let mut variables = None;
         
-        if self.matches(TokenType::Keyword, Some("variables")) {
+        if self.matches_value(TokenType::Keyword, "variables") {
             let var_section = self.parse_variables_section()?;
             // Extraer solo las declaraciones de VariablesSection
             if let ASTNode::VariablesSection { declarations } = var_section {
@@ -261,7 +261,7 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::Keyword, Some("comenzar"))?;
         let mut body = Vec::new();
         
-        while !self.is_at_end() && !self.matches(TokenType::Keyword, Some("fin")) {
+        while !self.is_at_end() && !self.matches_value(TokenType::Keyword, "fin") {
             body.push(self.parse_statement()?);
         }
         
@@ -295,11 +295,11 @@ impl<'a> Parser<'a> {
     }
     
     fn parse_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        if self.matches(TokenType::ControlSentence, Some("si")) {
+        if self.matches_value(TokenType::ControlSentence, "si") {
             self.parse_if_statement()
-        } else if self.matches(TokenType::ControlSentence, Some("mientras")) {
+        } else if self.matches_value(TokenType::ControlSentence, "mientras") {
             self.parse_while_statement()
-        } else if self.matches(TokenType::ControlSentence, Some("repetir")) {
+        } else if self.matches_value(TokenType::ControlSentence, "repetir") {
             self.parse_repeat_statement()
         } else if self.matches(TokenType::ElementalInstruction) {
             self.parse_elemental_instruction()
@@ -394,7 +394,7 @@ impl<'a> Parser<'a> {
         let mut alternate = None;
         
         // Verificar si hay un bloque SINO
-        if self.matches(TokenType::ControlSentence, Some("sino")) {
+        if self.matches_value(TokenType::ControlSentence, "sino") {
             self.consume(TokenType::ControlSentence, Some("sino"))?;
             alternate = Some(self.parse_block()?);
         }
@@ -552,17 +552,19 @@ impl<'a> Parser<'a> {
         Ok(())
     }
     
-    fn matches(&self, token_type: TokenType, value: Option<&str>) -> bool {
+    // Método matches con solo tipo
+    fn matches(&self, token_type: TokenType) -> bool {
         if let Some(token) = self.current_token {
-            if token.token_type != token_type {
-                return false;
-            }
-            
-            if let Some(val) = value {
-                return token.value == val;
-            }
-            
-            true
+            token.token_type == token_type
+        } else {
+            false
+        }
+    }
+    
+    // Método matches con tipo y valor
+    fn matches_value(&self, token_type: TokenType, value: &str) -> bool {
+        if let Some(token) = self.current_token {
+            token.token_type == token_type && token.value == value
         } else {
             false
         }
