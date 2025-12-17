@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 use super::token::{Token, TokenType, Keywords};
 use crate::lib::compilerError::{CompilerError};
 
@@ -83,7 +82,7 @@ impl<'a> Lexer<'a> {
                     if self.at_line_start {
                         self.handle_indentation()?;
                     } else {
-                        self.skip_whitespace();
+                        self.skip_whitespace_only();
                     }
                 }
                 
@@ -91,7 +90,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => self.read_number()?,
                 
                 // Letras (identificadores)
-                c if c.is_alphabetic() || c == '_' => self.read_identifier()?,
+                c if c.is_alphabetic() || c == '_' => {self.read_identifier()?; self.at_line_start = false;},
                 
                 // Strings
                 '"' | '\'' => self.read_string(char)?,
@@ -136,7 +135,7 @@ impl<'a> Lexer<'a> {
         let start_pos = self.position;
         let mut indent = 0;
         
-        // Contar espacios y tabs
+        // Solo contar espacios/tabs al inicio de línea
         while self.position < self.chars.len() {
             match self.chars[self.position] {
                 ' ' => {
@@ -153,46 +152,48 @@ impl<'a> Lexer<'a> {
             }
         }
         
-        // Si la línea está vacía o es solo espacios/tabs
+        // IMPORTANTE: Solo procesar indentación si estamos realmente al inicio de línea
+        // y después de espacios hay algo que no sea salto de línea
         if self.position >= self.chars.len() || self.chars[self.position] == '\n' {
+            // Línea vacía o solo espacios, no generar tokens de indentación
             self.at_line_start = false;
             return Ok(());
         }
         
         let last_indent = *self.indent_stack.last().unwrap();
         
-        // Nueva indentación mayor
-        if indent > last_indent {
-            self.tokens.push(Token::new(
-                TokenType::Indent,
-                "",
-                self.line,
-                1
-            ));
-            self.indent_stack.push(indent);
-        }
-        // Nueva indentación menor
-        else if indent < last_indent {
-            // Encontrar el nivel de indentación correspondiente
-            while let Some(&stack_indent) = self.indent_stack.last() {
-                if stack_indent <= indent {
-                    if stack_indent < indent {
-                        return Err(CompilerError::new(
-                            "Indentación inconsistente",
-                            self.line,
-                            1
-                        ));
-                    }
-                    break;
-                }
-                
+        // Solo generar tokens INDENT/DEDENT si hay cambio real de indentación
+        if indent != self.current_indent {
+            if indent > last_indent {
                 self.tokens.push(Token::new(
-                    TokenType::Dedent,
+                    TokenType::Indent,
                     "",
                     self.line,
                     1
                 ));
-                self.indent_stack.pop();
+                self.indent_stack.push(indent);
+            } else if indent < last_indent {
+                // Encontrar el nivel de indentación correspondiente
+                while let Some(&stack_indent) = self.indent_stack.last() {
+                    if stack_indent <= indent {
+                        if stack_indent < indent {
+                            return Err(CompilerError::new(
+                                "Indentación inconsistente",
+                                self.line,
+                                1
+                            ));
+                        }
+                        break;
+                    }
+                    
+                    self.tokens.push(Token::new(
+                        TokenType::Dedent,
+                        "",
+                        self.line,
+                        1
+                    ));
+                    self.indent_stack.pop();
+                }
             }
         }
         
@@ -206,13 +207,20 @@ impl<'a> Lexer<'a> {
         matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '&' | '|' | '~')
     }
     
-    fn skip_whitespace(&mut self) {
+    // Saltar espacios sin procesar indentación
+    fn skip_whitespace_only(&mut self) {
         while self.position < self.chars.len() && 
             self.chars[self.position].is_whitespace() &&
             self.chars[self.position] != '\n' {
             self.position += 1;
             self.column += 1;
+            self.at_line_start = false;
         }
+    }
+    
+    // Método anterior renombado para claridad
+    fn skip_whitespace(&mut self) {
+        self.skip_whitespace_only();
     }
     
     fn read_number(&mut self) -> Result<(), CompilerError> {
@@ -387,7 +395,6 @@ impl<'a> Lexer<'a> {
             let second_char = self.chars[self.position + 1];
             let two_char_op = format!("{}{}", first_char, second_char);
             
-            
             // Lista de operadores de dos caracteres
             match two_char_op.as_str() {
                 ":=" => {token = TokenType::Assign;}
@@ -520,7 +527,6 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    
     // Método de utilidad para depuración
     pub fn debug_tokens(&self) {
         println!("=== Tokens generados ===");
@@ -543,5 +549,5 @@ impl<'a> Lexer<'a> {
         }
         
         stats
-    }   
-}   
+    }
+}

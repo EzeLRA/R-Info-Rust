@@ -1,4 +1,6 @@
 use crate::lib::lexer::scanner::Lexer;
+use crate::lib::lexer::token::Keywords;
+use crate::lib::parser::processor::Parser;
 use std::fs;
 
 mod lib;
@@ -10,9 +12,21 @@ fn main() {
     let mut lx = Lexer::new(&source);
     match lx.tokenize() {
         Ok(tokens) => {
-            for token in tokens {
+            //Lexer
+            for token in &tokens {
                 println!("{:?}", token);
             }
+            //Parser
+            let mut prser = Parser::new(&tokens,Keywords::new());
+            match prser.parse() {
+                Ok(ast) => {
+                    println!("{:#?}", ast);
+                }
+                Err(e) => {
+                    eprintln!("Parsing error: {}", e);
+                }
+            }
+            
         }
         Err(e) => {
             eprintln!("Lexing error: {}", e);
