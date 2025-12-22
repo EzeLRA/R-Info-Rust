@@ -322,24 +322,24 @@ impl<'a> Parser<'a> {
     }
     
     fn parse_identifier_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        // Guardar el identificador
-        let identifier = self.consume(TokenType::Identifier, None)?.value.clone();
         
         // Verificar si es una llamada a proceso (tiene parámetros)
         if self.matches(TokenType::Parameter) {
             let parameters = self.parse_parameter_list()?;
+            let identifier = self.consume(TokenType::Identifier, None)?.value.clone();
             Ok(ASTNode::ProcessCall {
                 name: identifier,
                 parameters,
             })
         } else if self.matches(TokenType::Assign) {
-            // Es una asignación: identificador := valor
-            self.consume(TokenType::Assign, None)?;
-            let value = if self.matches(TokenType::Num) {
-                self.consume(TokenType::Num, None)?.value.clone()
+            let identifier = self.consume(TokenType::Assign, None)?;
+            let value = if self.matches(TokenType::BoolValue) {
+                self.consume(TokenType::BoolValue, None)?.value.clone()
             } else if self.matches(TokenType::Identifier) {
                 self.consume(TokenType::Identifier, None)?.value.clone()
-            } else {
+            } else if self.matches(TokenType::Num) {
+                self.consume(TokenType::Num, None)?.value.clone()
+            } else{
                 return Err(CompilerError::new(
                     "Valor esperado para asignación",
                     self.current_token.map_or(0, |t| t.line),
@@ -348,16 +348,31 @@ impl<'a> Parser<'a> {
             };
             
             Ok(ASTNode::Assignment {
-                target: Some(identifier),
+                target: Some(identifier.value.clone()),
                 operator: ":=".to_string(),
                 value,
             })
         } else {
+
+            let valuePri = if self.matches(TokenType::Num) {
+                self.consume(TokenType::Num, None)?.value.clone()
+            } else if self.matches(TokenType::Identifier) {
+                self.consume(TokenType::Identifier, None)?.value.clone()
+            } else if self.matches(TokenType::BoolValue) {
+                self.consume(TokenType::BoolValue, None)?.value.clone()
+            } else{
+                return Err(CompilerError::new(
+                    "Valor esperado para su uso",
+                    self.current_token.map_or(0, |t| t.line),
+                    self.current_token.map_or(0, |t| t.column),
+                ));
+            };
+
             // Solo un identificador (variable)
             Ok(ASTNode::Assignment {
                 target: None,
                 operator: "".to_string(),
-                value: identifier,
+                value: valuePri,
             })
         }
     }
@@ -367,7 +382,11 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::Assign, None)?;
         let value = if self.matches(TokenType::Num) {
             self.consume(TokenType::Num, None)?.value.clone()
-        } else {
+        }else if self.matches(TokenType::BoolValue) {
+            self.consume(TokenType::BoolValue, None)?.value.clone()
+        } else if self.matches(TokenType::Identifier) {
+            self.consume(TokenType::Identifier, None)?.value.clone()
+        } else{
             return Err(CompilerError::new(
                 "Número esperado para asignación",
                 self.current_token.map_or(0, |t| t.line),
@@ -423,7 +442,17 @@ impl<'a> Parser<'a> {
     
     fn parse_repeat_statement(&mut self) -> Result<ASTNode, CompilerError> {
         self.consume(TokenType::ControlSentence, Some("repetir"))?;
-        let count = self.consume(TokenType::Num, None)?.value.clone();
+        let count = if self.matches(TokenType::Num) {
+                self.consume(TokenType::Num, None)?.value.clone()
+            } else if self.matches(TokenType::Identifier) {
+                self.consume(TokenType::Identifier, None)?.value.clone()
+            } else{
+                return Err(CompilerError::new(
+                    "Número esperado para asignación",
+                    self.current_token.map_or(0, |t| t.line),
+                    self.current_token.map_or(0, |t| t.column),
+                ));
+            };
         let body = self.parse_block()?;
         
         Ok(ASTNode::RepeatStatement {

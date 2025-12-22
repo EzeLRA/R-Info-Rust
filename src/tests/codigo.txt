@@ -14,7 +14,7 @@ procesos
         Pos(numAv, 1)
         repetir paso
             mover
-        mientras paso < 10
+        mientras (paso < 10)
             paso := paso + 1
         si HayFlorEnLaEsquina
             paso := 0
