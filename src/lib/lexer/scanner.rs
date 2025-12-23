@@ -377,79 +377,63 @@ impl<'a> Lexer<'a> {
         let start_line = self.line;
         let start_column = self.column;
         
-        // Verificar si hay al menos un carácter disponible
-        if self.position >= self.chars.len() {
-            return Err(CompilerError::new(
-                "Operador incompleto",
+        // Primero intentar identificar operadores de dos caracteres y a la vez si tiene caracteres suficientes
+        if (self.position + 1 < self.chars.len())||(self.position >= self.chars.len()) {
+            let first_char = self.chars[self.position];
+            let second_char = self.chars[self.position + 1];
+            let two_char_op = format!("{}{}", first_char, second_char);
+            let value_res = two_char_op.clone();
+
+            // Lista de operadores de dos caracteres
+            let token = match two_char_op.as_str() {
+                ":=" => {TokenType::Assign}
+                "<>" => {TokenType::NotEquals}
+                "<=" => {TokenType::LessEqual}
+                ">=" => {TokenType::GreaterEqual}
+                "==" => {TokenType::Equals}
+                _ => {
+                    // No es un operador de dos caracteres, se continua con un caracter
+                    match first_char {
+                        ',' => {TokenType::Comma}
+                        ':' => {TokenType::Declaration}
+                        '&' => {TokenType::And}
+                        '|' => {TokenType::Or}
+                        '~' => {TokenType::Not}
+                        '+' => {TokenType::Plus}
+                        '-' => {TokenType::Minus}
+                        '*' => {TokenType::Multiply}
+                        '/' => {TokenType::Divide}
+                        '=' => {TokenType::Equals}
+                        '<' => {TokenType::Less}
+                        '>' => {TokenType::Greater}
+                        _ => {
+                            return Err(CompilerError::new(
+                                format!("Operador no reconocido: '{}'", first_char),
+                                start_line,
+                                start_column
+                            ));
+                        }
+                    }
+                    
+                }
+            };
+
+            self.tokens.push(Token::new(
+                token,
+                value_res,
                 start_line,
                 start_column
             ));
+            self.position += 2;
+            self.column += 2;
+            return Ok(());
         }
-        
-        let first_char = self.chars[self.position];
-        
-        let mut token = TokenType::Operator;
-
-        // Primero intentar identificar operadores de dos caracteres
-        if self.position + 1 < self.chars.len() {
-            let second_char = self.chars[self.position + 1];
-            let two_char_op = format!("{}{}", first_char, second_char);
-            
-            // Lista de operadores de dos caracteres
-            match two_char_op.as_str() {
-                ":=" => {token = TokenType::Assign;}
-                "<>" => {token = TokenType::NotEquals;}
-                "<=" => {token = TokenType::LessEqual;}
-                ">=" => {token = TokenType::GreaterEqual;}
-                _ => {
-                    // No es un operador de dos caracteres, continuar con uno
-                }
-            }
-            if token != TokenType::Operator {
-                self.tokens.push(Token::new(
-                    token,
-                    two_char_op.clone(),
-                    start_line,
-                    start_column
-                ));
-                self.position += 2;
-                self.column += 2;
-                return Ok(());
-            }
-        }
-        // Si no es un operador de dos caracteres, intentar con uno
-        match first_char {
-            ',' => {token = TokenType::Comma;}
-            ':' => {token = TokenType::Declaration;}
-            '&' => {token = TokenType::And;}
-            '|' => {token = TokenType::Or;}
-            '~' => {token = TokenType::Not;}
-            '+' => {token = TokenType::Plus;}
-            '-' => {token = TokenType::Minus;}
-            '*' => {token = TokenType::Multiply;}
-            '/' => {token = TokenType::Divide;}
-            '=' => {token = TokenType::Equals;}
-            '<' => {token = TokenType::Less;}
-            '>' => {token = TokenType::Greater;}
-            _ => {
-                return Err(CompilerError::new(
-                    format!("Operador no reconocido: '{}'", first_char),
-                    start_line,
-                    start_column
-                ));
-            }
-        }
-        
-        self.tokens.push(Token::new(
-            token,
-            first_char.to_string(),
+        return Err(CompilerError::new(
+            format!("Operador sin caracteres suficientes"),
             start_line,
             start_column
         ));
-        self.position += 1;
-        self.column += 1;
         
-        return Ok(());
     }
     
     fn read_comment(&mut self) -> Result<(), CompilerError> {

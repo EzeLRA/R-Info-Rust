@@ -77,6 +77,9 @@ pub enum ASTNode {
     Operator {
         operator: String,
     },
+    Value {
+        value: String,
+    },
 }
 
 #[derive(Debug, Clone)]

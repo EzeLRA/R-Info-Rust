@@ -4,7 +4,6 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenType {
     Parameter,
-    Operator,
     Str,
     Num,
     Bool,
@@ -39,7 +38,6 @@ impl TokenType {
     pub fn as_str(&self) -> &'static str {
         match self {
             TokenType::Parameter => "PARAMETER",
-            TokenType::Operator => "OPERATOR",
             TokenType::Str => "STRING",
             TokenType::Num => "NUMBER",
             TokenType::Bool => "BOOLEAN",
@@ -93,6 +91,9 @@ impl Token {
             line,
             column,
         }
+    }
+    pub fn is_mat_operator(&self) -> bool {
+        matches!(self.token_type, TokenType::Plus | TokenType::Minus | TokenType::Multiply | TokenType::Divide)||matches!(self.token_type, TokenType::Equals | TokenType::NotEquals | TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual)||matches!(self.token_type, TokenType::And | TokenType::Or | TokenType::Not)
     }
 }
 

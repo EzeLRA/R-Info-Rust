@@ -303,9 +303,11 @@ impl<'a> Parser<'a> {
             self.parse_repeat_statement()
         } else if self.matches(TokenType::ElementalInstruction) {
             self.parse_elemental_instruction()
-        } else if self.matches(TokenType::Identifier) {
+        } else if self.is_a_value() {
             // Puede ser una llamada a proceso o una asignación
             self.parse_identifier_statement()
+        } else if self.is_mat_operator() {
+            self.parse_operator()
         } else if self.matches(TokenType::Assign) {
             self.parse_assignment_statement()
         } else {
@@ -320,61 +322,54 @@ impl<'a> Parser<'a> {
             ))
         }
     }
-    
+    fn is_a_value(&self) -> bool {
+        if let Some(token) = self.current_token {
+            matches!(token.token_type, TokenType::Num | TokenType::Identifier | TokenType::BoolValue | TokenType::Parameter)
+        } else {
+            false
+        }
+    }
+    fn is_mat_operator(&self) -> bool {
+        if let Some(token) = self.current_token {
+            matches!(token.token_type, TokenType::Plus | TokenType::Minus | TokenType::Multiply | TokenType::Divide)||matches!(token.token_type, TokenType::And | TokenType::Or | TokenType::Not | TokenType::Equals | TokenType::NotEquals | TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual)
+        } else {
+            false
+        }
+    }
+    fn parse_operator(&mut self) -> Result<ASTNode, CompilerError> {
+        let operator = self.consume_token()?.value.clone();
+        Ok(ASTNode::Operator { operator })
+    }   
     fn parse_identifier_statement(&mut self) -> Result<ASTNode, CompilerError> {
         
         // Verificar si es una llamada a proceso (tiene parámetros)
         if self.matches(TokenType::Parameter) {
             let parameters = self.parse_parameter_list()?;
             let identifier = self.consume(TokenType::Identifier, None)?.value.clone();
-            Ok(ASTNode::ProcessCall {
+            return Ok(ASTNode::ProcessCall {
                 name: identifier,
                 parameters,
-            })
-        } else if self.matches(TokenType::Assign) {
-            let identifier = self.consume(TokenType::Assign, None)?;
-            let value = if self.matches(TokenType::BoolValue) {
-                self.consume(TokenType::BoolValue, None)?.value.clone()
-            } else if self.matches(TokenType::Identifier) {
-                self.consume(TokenType::Identifier, None)?.value.clone()
-            } else if self.matches(TokenType::Num) {
-                self.consume(TokenType::Num, None)?.value.clone()
-            } else{
-                return Err(CompilerError::new(
-                    "Valor esperado para asignación",
-                    self.current_token.map_or(0, |t| t.line),
-                    self.current_token.map_or(0, |t| t.column),
-                ));
-            };
-            
-            Ok(ASTNode::Assignment {
-                target: Some(identifier.value.clone()),
-                operator: ":=".to_string(),
-                value,
-            })
-        } else {
-
-            let valuePri = if self.matches(TokenType::Num) {
-                self.consume(TokenType::Num, None)?.value.clone()
-            } else if self.matches(TokenType::Identifier) {
-                self.consume(TokenType::Identifier, None)?.value.clone()
-            } else if self.matches(TokenType::BoolValue) {
-                self.consume(TokenType::BoolValue, None)?.value.clone()
-            } else{
-                return Err(CompilerError::new(
-                    "Valor esperado para su uso",
-                    self.current_token.map_or(0, |t| t.line),
-                    self.current_token.map_or(0, |t| t.column),
-                ));
-            };
-
-            // Solo un identificador (variable)
-            Ok(ASTNode::Assignment {
-                target: None,
-                operator: "".to_string(),
-                value: valuePri,
-            })
+            });
+        
         }
+
+        let valuePri = if self.matches(TokenType::Num) {
+            self.consume(TokenType::Num, None)?.value.clone()
+        } else if self.matches(TokenType::Identifier) {
+            self.consume(TokenType::Identifier, None)?.value.clone()
+        } else if self.matches(TokenType::BoolValue) {
+            self.consume(TokenType::BoolValue, None)?.value.clone()
+        } else {
+            return Err(CompilerError::new(
+                "Valor esperado para su uso",
+                self.current_token.map_or(0, |t| t.line),
+                self.current_token.map_or(0, |t| t.column),
+            ));
+        };
+
+        Ok(ASTNode::Value {
+            value: valuePri,
+        })
     }
     
     fn parse_assignment_statement(&mut self) -> Result<ASTNode, CompilerError> {
@@ -467,10 +462,8 @@ impl<'a> Parser<'a> {
         // Leer la condición hasta encontrar un token que indique el fin
         while !self.is_at_end() && 
                !self.matches(TokenType::Indent) && 
-               !self.matches(TokenType::ControlSentence) && 
-               !self.matches(TokenType::ElementalInstruction) && 
-               !self.matches(TokenType::Identifier) &&
-               !self.matches(TokenType::Assign) {
+               !self.matches(TokenType::ControlSentence)  
+        {
             
             if let Some(token) = self.current_token {
                 condition.push_str(&token.value);
