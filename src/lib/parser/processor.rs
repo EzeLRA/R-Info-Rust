@@ -345,9 +345,9 @@ impl<'a> Parser<'a> {
         // Verificar si es una llamada a proceso (tiene parámetros)
         if self.matches(TokenType::Parameter) {
             let parameters = self.parse_parameter_list()?;
-            let identifier = self.consume(TokenType::Identifier, None)?.value.clone();
+            //let identifier = self.consume(TokenType::Identifier, None)?.value.clone();
             return Ok(ASTNode::ProcessCall {
-                name: identifier,
+                name: "".to_string(),
                 parameters,
             });
         

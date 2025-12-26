@@ -1,7 +1,7 @@
 use std::fmt;
 
 // Error del compilador
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct CompilerError {
     pub message: String,
     pub line: usize,

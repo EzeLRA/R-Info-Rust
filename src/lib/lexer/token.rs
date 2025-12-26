@@ -92,9 +92,6 @@ impl Token {
             column,
         }
     }
-    pub fn is_mat_operator(&self) -> bool {
-        matches!(self.token_type, TokenType::Plus | TokenType::Minus | TokenType::Multiply | TokenType::Divide)||matches!(self.token_type, TokenType::Equals | TokenType::NotEquals | TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual)||matches!(self.token_type, TokenType::And | TokenType::Or | TokenType::Not)
-    }
 }
 
 #[derive(Debug, Clone)]
