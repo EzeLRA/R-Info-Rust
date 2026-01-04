@@ -1,26 +1,188 @@
 use std::collections::HashMap;
 use crate::lib::compilerError::CompilerError;
-use super::super::lexer::token::{Token, TokenType, Keywords};
-use super::ast::{ASTNode, Condition, Parameter};
+use super::super::lexer::token::{Token, TokenType};
+
+// Nodos del AST
+#[derive(Debug, Clone)]
+pub enum ASTNode {
+    Program {
+        name: String,
+        procedures: Vec<ProcedureNode>,
+        areas: Vec<AreaNode>,
+        robots: Vec<RobotNode>,
+        global_vars: Vec<VariableDeclaration>,
+        main_block: BlockNode,
+    },
+    Procedure(ProcedureNode),
+    Robot(RobotNode),
+    Area(AreaNode),
+    VariableDeclaration(VariableDeclaration),
+    Block(BlockNode),
+    Assignment {
+        variable: String,
+        value: Box<ASTNode>,
+    },
+    FunctionCall {
+        name: String,
+        args: Vec<ASTNode>,
+    },
+    Identifier(String),
+    NumberLiteral(i32),
+    BooleanLiteral(bool),
+    BinaryOperation {
+        left: Box<ASTNode>,
+        operator: BinaryOperator,
+        right: Box<ASTNode>,
+    },
+    IfStatement {
+        condition: Box<ASTNode>,
+        then_block: BlockNode,
+        else_block: Option<BlockNode>,
+    },
+    WhileStatement {
+        condition: Box<ASTNode>,
+        body: BlockNode,
+    },
+    RepeatStatement {
+        condition: Box<ASTNode>,
+        body: BlockNode,
+    },
+    Parameter {
+        param_type: ParameterType,
+        name: String,
+        data_type: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcedureNode {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub variables: Vec<VariableDeclaration>,
+    pub body: BlockNode,
+}
+
+#[derive(Debug, Clone)]
+pub struct Parameter {
+    pub param_type: ParameterType,
+    pub name: String,
+    pub data_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParameterType {
+    In,  // E
+    Out, // S
+    InOut, // ES
+}
+
+#[derive(Debug, Clone)]
+pub struct VariableDeclaration {
+    pub name: String,
+    pub data_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RobotNode {
+    pub name: String,
+    pub variables: Vec<VariableDeclaration>,
+    pub body: BlockNode,
+}
+
+#[derive(Debug, Clone)]
+pub struct AreaNode {
+    pub name: String,
+    pub area_type: String,
+    pub coordinates: (i32, i32, i32, i32),
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockNode {
+    pub statements: Vec<ASTNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryOperator {
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equals,
+    NotEquals,
+    And,
+    Or,
+}
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
     position: usize,
     current_token: Option<&'a Token>,
-    indent_level: usize,
-    keywords: Keywords,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a [Token], keywords: Keywords) -> Self {
-        let current_token = if !tokens.is_empty() { Some(&tokens[0]) } else { None };
-        
-        Self {
+    pub fn new(tokens: &'a [Token]) -> Self {
+        let mut parser = Self {
             tokens,
             position: 0,
-            current_token,
-            indent_level: 0,
-            keywords,
+            current_token: None,
+        };
+        parser.advance();
+        parser
+    }
+    
+    fn advance(&mut self) {
+        if self.position < self.tokens.len() {
+            self.current_token = Some(&self.tokens[self.position]);
+            self.position += 1;
+        } else {
+            self.current_token = None;
+        }
+    }
+    
+    fn peek(&self) -> Option<&Token> {
+        if self.position < self.tokens.len() {
+            Some(&self.tokens[self.position])
+        } else {
+            None
+        }
+    }
+    
+    fn consume(&mut self, expected_type: TokenType, error_msg: &str) -> Result<(), CompilerError> {
+        match self.current_token {
+            Some(token) if token.token_type == expected_type => {
+                self.advance();
+                Ok(())
+            }
+            Some(token) => Err(CompilerError::new(
+                format!("{}: esperado {:?}, encontrado {:?}",
+                    error_msg, expected_type, token.token_type),
+                token.line,
+                token.column
+            )),
+            None => Err(CompilerError::new(
+                format!("{}: esperado {:?}, pero no hay más tokens", error_msg, expected_type),
+                0, 0
+            )),
+        }
+    }
+    
+    fn expect_identifier(&mut self) -> Result<String, CompilerError> {
+        match self.current_token {
+            Some(token) if token.token_type == TokenType::Identifier => {
+                let name = token.value.clone();
+                self.advance();
+                Ok(name)
+            }
+            Some(token) => Err(CompilerError::new(
+                format!("Esperado identificador, encontrado {:?}", token.token_type),
+                token.line,
+                token.column
+            )),
+            None => Err(CompilerError::new("Esperado identificador, pero no hay más tokens", 0, 0)),
         }
     }
     
@@ -29,68 +191,110 @@ impl<'a> Parser<'a> {
     }
     
     fn parse_program(&mut self) -> Result<ASTNode, CompilerError> {
-        // Busca si el primer token obtenido por el lexer es "programa"
-        self.consume(TokenType::Keyword, Some("programa"))?;
+        // programa nombre
+        self.consume(TokenType::Keyword, "Esperado 'programa'")?;
+        let program_name = self.expect_identifier()?;
         
-        // Almacenar el nombre del programa
-        let program_name = self.consume(TokenType::Identifier, None)?.value.clone();
+        let mut procedures = Vec::new();
+        let mut areas = Vec::new();
+        let mut robots = Vec::new();
+        let mut global_vars = Vec::new();
         
-        let mut body = Vec::new();
-        
-        // Parsear secciones en el orden que aparecen
-        if self.matches_value(TokenType::Keyword, "procesos") {
-            body.push(self.parse_procesos()?);
-        }
-        
-        body.push(self.parse_areas()?);
-        body.push(self.parse_robots()?);
-        body.push(self.parse_variables_section()?);
-        body.push(self.parse_main_block()?);
-        
-        Ok(ASTNode::Program {
-            name: program_name,
-            body,
-        })
-    }
-    
-    fn parse_procesos(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("procesos"))?;
-        let mut procesos = Vec::new();
-        
-        while !self.is_at_end() && !self.is_next_section() {
-            if self.matches_value(TokenType::Keyword, "proceso") {
-                procesos.push(self.parse_proceso()?);
-            } else {
-                self.advance()?;
+        // Parsear secciones opcionales
+        while self.current_token.is_some() {
+            match self.current_token {
+                Some(token) if token.token_type == TokenType::Keyword => {
+                    match token.value.as_str() {
+                        "procesos" => {
+                            self.advance(); // Consumir "procesos"
+                            procedures = self.parse_procedures()?;
+                        }
+                        "areas" => {
+                            self.advance(); // Consumir "areas"
+                            areas = self.parse_areas()?;
+                        }
+                        "robots" => {
+                            self.advance(); // Consumir "robots"
+                            robots = self.parse_robots()?;
+                        }
+                        "variables" => {
+                            self.advance(); // Consumir "variables"
+                            global_vars = self.parse_variable_declarations()?;
+                        }
+                        "comenzar" => break, // Salir para parsear el bloque principal
+                        _ => return Err(CompilerError::new(
+                            format!("Sección inesperada: {}", token.value),
+                            token.line,
+                            token.column
+                        )),
+                    }
+                }
+                _ => break,
             }
         }
         
-        Ok(ASTNode::ProcesosSection { procesos })
+        // Parsear bloque principal
+        self.consume(TokenType::Keyword, "Esperado 'comenzar'")?;
+        let main_block = self.parse_block()?;
+        self.consume(TokenType::Keyword, "Esperado 'fin'")?;
+        
+        Ok(ASTNode::Program {
+            name: program_name,
+            procedures,
+            areas,
+            robots,
+            global_vars,
+            main_block,
+        })
     }
     
-    fn parse_proceso(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("proceso"))?;
-        let name = self.consume(TokenType::Identifier, None)?.value.clone();
+    fn parse_procedures(&mut self) -> Result<Vec<ProcedureNode>, CompilerError> {
+        let mut procedures = Vec::new();
         
-        let mut parameters = Vec::new();
-        let mut variables = None;
-        
-        // Parsear parámetros (ej: "E numAv: numero")
-        while self.matches(TokenType::Parameter) {
-            let param_token = self.consume(TokenType::Parameter, None)?;
-            parameters.push(self.parse_parameter(&param_token.value)?);
+        while self.current_token.is_some() {
+            if let Some(token) = self.current_token {
+                if token.token_type == TokenType::Keyword && token.value == "proceso" {
+                    procedures.push(self.parse_procedure()?);
+                } else if token.token_type == TokenType::Indent {
+                    self.advance(); // Saltar indentación
+                } else {
+                    break; // Fin de las secciones de procedimientos
+                }
+            }
         }
         
-        if self.matches_value(TokenType::Keyword, "variables") {
-            let var_section = self.parse_variables_section()?;
-            variables = Some(Box::new(var_section));
-        }
+        Ok(procedures)
+    }
+    
+    fn parse_procedure(&mut self) -> Result<ProcedureNode, CompilerError> {
+        self.consume(TokenType::Keyword, "Esperado 'proceso'")?;
+        let name = self.expect_identifier()?;
         
-        self.consume(TokenType::Keyword, Some("comenzar"))?;
+        // Parsear parámetros
+        let parameters = if self.current_token.is_some() && 
+            self.current_token.unwrap().token_type == TokenType::OpenedParenthesis {
+            self.advance(); // Consumir '('
+            self.parse_parameters()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parsear sección de variables
+        let variables = if self.current_token.is_some() &&
+            self.current_token.unwrap().token_type == TokenType::Keyword &&
+            self.current_token.unwrap().value == "variables" {
+            self.advance(); // Consumir "variables"
+            self.parse_variable_declarations()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parsear cuerpo
+        self.consume(TokenType::Keyword, "Esperado 'comenzar'")?;
         let body = self.parse_block()?;
-        self.consume(TokenType::Keyword, Some("fin"))?;
+        self.consume(TokenType::Keyword, "Esperado 'fin'")?;
         
-        Ok(ASTNode::Proceso {
+        Ok(ProcedureNode {
             name,
             parameters,
             variables,
@@ -98,641 +302,688 @@ impl<'a> Parser<'a> {
         })
     }
     
-    fn parse_parameter(&self, param_string: &str) -> Result<Parameter, CompilerError> {
-        // Ejemplo: "E numAv: numero" → {direction: 'E', name: 'numAv', type: 'numero'}
-        let parts: Vec<&str> = param_string.split_whitespace().collect();
+    fn parse_parameters(&mut self) -> Result<Vec<Parameter>, CompilerError> {
+        let mut parameters = Vec::new();
         
-        if parts.len() < 2 {
-            return Err(CompilerError::new(
-                format!("Parámetro mal formado: '{}'", param_string),
-                0, // Línea desconocida
-                0, // Columna desconocida
-            ));
-        }
-        
-        let direction = parts[0].to_string();
-        let name_type: Vec<&str> = parts[1].split(':').collect();
-        
-        let name = if !name_type.is_empty() {
-            name_type[0].trim().to_string()
-        } else {
-            "".to_string()
-        };
-        
-        let param_type = if name_type.len() > 1 {
-            name_type[1].trim().to_string()
-        } else {
-            "numero".to_string()
-        };
-        
-        Ok(Parameter {
-            direction,
-            name,
-            param_type,
-        })
-    }
-    
-    fn parse_areas(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("areas"))?;
-        let mut areas = Vec::new();
-        
-        while !self.is_at_end() && !self.is_next_section() {
-            if self.matches(TokenType::Identifier) {
-                areas.push(self.parse_area_definition()?);
-            } else {
-                self.advance()?;
+        while self.current_token.is_some() && 
+            self.current_token.unwrap().token_type != TokenType::ClosedParenthesis {
+            
+            // Parsear tipo de parámetro (E, S, ES)
+            let param_type = match self.current_token {
+                Some(token) if token.token_type == TokenType::ParameterType => {
+                    let pt = match token.value.as_str() {
+                        "E" => ParameterType::In,
+                        "S" => ParameterType::Out,
+                        "ES" => ParameterType::InOut,
+                        _ => return Err(CompilerError::new(
+                            format!("Tipo de parámetro desconocido: {}", token.value),
+                            token.line,
+                            token.column
+                        )),
+                    };
+                    self.advance();
+                    pt
+                }
+                _ => return Err(CompilerError::new(
+                    "Esperado tipo de parámetro (E, S, ES)",
+                    self.current_token.unwrap().line,
+                    self.current_token.unwrap().column
+                )),
+            };
+            
+            let name = self.expect_identifier()?;
+            self.consume(TokenType::Declaration, "Esperado ':'")?;
+            
+            // Parsear tipo de dato
+            let data_type = match self.current_token {
+                Some(token) if token.token_type == TokenType::Num || 
+                               token.token_type == TokenType::Bool => {
+                    let dt = token.value.clone();
+                    self.advance();
+                    dt
+                }
+                _ => return Err(CompilerError::new(
+                    "Esperado tipo de dato (numero, booleano)",
+                    self.current_token.unwrap().line,
+                    self.current_token.unwrap().column
+                )),
+            };
+            
+            parameters.push(Parameter {
+                param_type,
+                name,
+                data_type,
+            });
+            
+            // Verificar si hay más parámetros (separados por coma)
+            if self.current_token.is_some() && 
+                self.current_token.unwrap().token_type == TokenType::Comma {
+                self.advance();
             }
         }
         
-        Ok(ASTNode::AreasSection { areas })
+        self.consume(TokenType::ClosedParenthesis, "Esperado ')'")?;
+        Ok(parameters)
     }
     
-    fn parse_area_definition(&mut self) -> Result<ASTNode, CompilerError> {
-        let area_name = self.consume(TokenType::Identifier, None)?.value.clone();
-        self.consume(TokenType::Declaration, None)?; // ':'
-        
-        // Buscar tipo de área (ElementalInstruction)
-        let area_type = if self.matches_any_elemental_instruction() {
-            self.consume(TokenType::ElementalInstruction, None)?.value.clone()
-        } else {
-            return Err(CompilerError::new(
-                "Tipo de área esperado",
-                self.current_token.map_or(0, |t| t.line),
-                self.current_token.map_or(0, |t| t.column),
-            ));
-        };
-        
-        let dimensions = self.parse_parameter_list()?;
-        
-        Ok(ASTNode::AreaDefinition {
-            name: area_name,
-            area_type,
-            dimensions,
-        })
-    }
-    
-    fn matches_any_elemental_instruction(&self) -> bool {
-        if let Some(token) = self.current_token {
-            token.token_type == TokenType::ElementalInstruction
-        } else {
-            false
-        }
-    }
-    
-    fn parse_robots(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("robots"))?;
-        let mut robots = Vec::new();
-        
-        while !self.is_at_end() && !self.is_next_section() {
-            if self.matches_value(TokenType::Keyword, "robot") {
-                robots.push(self.parse_robot()?);
-            } else {
-                self.advance()?;
-            }
-        }
-        
-        Ok(ASTNode::RobotsSection { robots })
-    }
-    
-    fn parse_robot(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("robot"))?;
-        let name = self.consume(TokenType::Identifier, None)?.value.clone();
-        let mut variables = None;
-        
-        if self.matches_value(TokenType::Keyword, "variables") {
-            let var_section = self.parse_variables_section()?;
-            // Extraer solo las declaraciones de VariablesSection
-            if let ASTNode::VariablesSection { declarations } = var_section {
-                variables = Some(declarations);
-            }
-        }
-        
-        self.consume(TokenType::Keyword, Some("comenzar"))?;
-        let body = self.parse_block()?;
-        self.consume(TokenType::Keyword, Some("fin"))?;
-        
-        Ok(ASTNode::Robot {
-            name,
-            variables,
-            body,
-        })
-    }
-    
-    fn parse_variables_section(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("variables"))?;
+    fn parse_variable_declarations(&mut self) -> Result<Vec<VariableDeclaration>, CompilerError> {
         let mut declarations = Vec::new();
         
-        while !self.is_at_end() && !self.is_next_section() {
-            if self.matches(TokenType::Identifier) {
-                declarations.push(self.parse_variable_declaration()?);
-            } else {
-                self.advance()?;
-            }
-        }
-        
-        Ok(ASTNode::VariablesSection { declarations })
-    }
-    
-    fn parse_variable_declaration(&mut self) -> Result<ASTNode, CompilerError> {
-        let name = self.consume(TokenType::Identifier, None)?.value.clone();
-        self.consume(TokenType::Declaration, None)?; // ':'
-        
-        let var_type = if self.matches(TokenType::Identifier) {
-            self.consume(TokenType::Identifier, None)?.value.clone()
-        } else if self.matches(TokenType::Num) || self.matches(TokenType::Bool) {
-            // Manejar tipos básicos
-            let token = self.consume_token()?;
-            token.value.clone()
-        } else {
-            return Err(CompilerError::new(
-                "Tipo de variable esperado",
-                self.current_token.map_or(0, |t| t.line),
-                self.current_token.map_or(0, |t| t.column),
-            ));
-        };
-        
-        Ok(ASTNode::VariableDeclaration {
-            name,
-            variable_type: var_type,
-        })
-    }
-    
-    fn parse_main_block(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::Keyword, Some("comenzar"))?;
-        let mut body = Vec::new();
-        
-        while !self.is_at_end() && !self.matches_value(TokenType::Keyword, "fin") {
-            body.push(self.parse_statement()?);
-        }
-        
-        self.consume(TokenType::Keyword, Some("fin"))?;
-        
-        Ok(ASTNode::MainBlock { body })
-    }
-    
-    fn parse_block(&mut self) -> Result<Vec<ASTNode>, CompilerError> {
-        let mut statements = Vec::new();
-        
-        // Esperar INDENT para bloques
-        if self.matches(TokenType::Indent) {
-            self.consume(TokenType::Indent, None)?;
-            self.indent_level += 1;
-            
-            while !self.is_at_end() && !self.matches(TokenType::Dedent) {
-                statements.push(self.parse_statement()?);
-            }
-            
-            if self.matches(TokenType::Dedent) {
-                self.consume(TokenType::Dedent, None)?;
-            }
-            self.indent_level -= 1;
-        } else {
-            // Bloque de una sola línea
-            statements.push(self.parse_statement()?);
-        }
-        
-        Ok(statements)
-    }
-    
-    fn parse_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        if self.matches_value(TokenType::ControlSentence, "si") {
-            self.parse_if_statement()
-        } else if self.matches_value(TokenType::ControlSentence, "mientras") {
-            self.parse_while_statement()
-        } else if self.matches_value(TokenType::ControlSentence, "repetir") {
-            self.parse_repeat_statement()
-        } else if self.matches(TokenType::ElementalInstruction) {
-            self.parse_elemental_instruction()
-        } else if self.is_a_value() {
-            // Puede ser una llamada a proceso o una asignación
-            self.parse_identifier_statement()
-        } else if self.is_mat_operator() {
-            self.parse_operator()
-        } else if self.matches(TokenType::Assign) {
-            self.parse_assignment_statement()
-        } else {
-            Err(CompilerError::new(
-                format!(
-                    "Declaración no esperada: {:?} '{}'",
-                    self.current_token.map(|t| t.token_type),
-                    self.current_token.map_or("", |t| &t.value)
-                ),
-                self.current_token.map_or(0, |t| t.line),
-                self.current_token.map_or(0, |t| t.column),
-            ))
-        }
-    }
-    fn is_a_value(&self) -> bool {
-        if let Some(token) = self.current_token {
-            matches!(token.token_type, TokenType::Num | TokenType::Identifier | TokenType::BoolValue | TokenType::Parameter)
-        } else {
-            false
-        }
-    }
-    fn is_mat_operator(&self) -> bool {
-        if let Some(token) = self.current_token {
-            matches!(token.token_type, TokenType::Plus | TokenType::Minus | TokenType::Multiply | TokenType::Divide)||matches!(token.token_type, TokenType::And | TokenType::Or | TokenType::Not | TokenType::Equals | TokenType::NotEquals | TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual)
-        } else {
-            false
-        }
-    }
-    fn parse_operator(&mut self) -> Result<ASTNode, CompilerError> {
-        let operator = self.consume_token()?.value.clone();
-        Ok(ASTNode::Operator { operator })
-    }   
-    fn parse_identifier_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        
-        // Verificar si es una llamada a proceso (tiene parámetros)
-        if self.matches(TokenType::Parameter) {
-            let parameters = self.parse_parameter_list()?;
-            //let identifier = self.consume(TokenType::Identifier, None)?.value.clone();
-            return Ok(ASTNode::ProcessCall {
-                name: "".to_string(),
-                parameters,
-            });
-        
-        }
-
-        let valuePri = if self.matches(TokenType::Num) {
-            self.consume(TokenType::Num, None)?.value.clone()
-        } else if self.matches(TokenType::Identifier) {
-            self.consume(TokenType::Identifier, None)?.value.clone()
-        } else if self.matches(TokenType::BoolValue) {
-            self.consume(TokenType::BoolValue, None)?.value.clone()
-        } else {
-            return Err(CompilerError::new(
-                "Valor esperado para su uso",
-                self.current_token.map_or(0, |t| t.line),
-                self.current_token.map_or(0, |t| t.column),
-            ));
-        };
-
-        Ok(ASTNode::Value {
-            value: valuePri,
-        })
-    }
-    
-    fn parse_assignment_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        // Asignación simple: := valor
-        self.consume(TokenType::Assign, None)?;
-        let value = if self.matches(TokenType::Num) {
-            self.consume(TokenType::Num, None)?.value.clone()
-        }else if self.matches(TokenType::BoolValue) {
-            self.consume(TokenType::BoolValue, None)?.value.clone()
-        } else if self.matches(TokenType::Identifier) {
-            self.consume(TokenType::Identifier, None)?.value.clone()
-        } else{
-            return Err(CompilerError::new(
-                "Número esperado para asignación",
-                self.current_token.map_or(0, |t| t.line),
-                self.current_token.map_or(0, |t| t.column),
-            ));
-        };
-        
-        Ok(ASTNode::Assignment {
-            target: None,
-            operator: ":=".to_string(),
-            value,
-        })
-    }
-    
-    fn parse_if_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::ControlSentence, Some("si"))?;
-        
-        // Parsear condición
-        let condition = self.parse_condition()?;
-        
-        // Parsear bloque THEN
-        let consequent = self.parse_block()?;
-        
-        let mut alternate = None;
-        
-        // Verificar si hay un bloque SINO
-        if self.matches_value(TokenType::ControlSentence, "sino") {
-            self.consume(TokenType::ControlSentence, Some("sino"))?;
-            alternate = Some(self.parse_block()?);
-        }
-        
-        Ok(ASTNode::IfStatement {
-            condition,
-            consequent,
-            alternate,
-        })
-    }
-    
-    fn parse_while_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::ControlSentence, Some("mientras"))?;
-        
-        // Parsear condición
-        let condition = self.parse_condition()?;
-        
-        // Parsear cuerpo del bucle
-        let body = self.parse_block()?;
-        
-        Ok(ASTNode::WhileStatement {
-            condition,
-            body,
-        })
-    }
-    
-    fn parse_repeat_statement(&mut self) -> Result<ASTNode, CompilerError> {
-        self.consume(TokenType::ControlSentence, Some("repetir"))?;
-        let count = if self.matches(TokenType::Num) {
-                self.consume(TokenType::Num, None)?.value.clone()
-            } else if self.matches(TokenType::Identifier) {
-                self.consume(TokenType::Identifier, None)?.value.clone()
-            } else{
-                return Err(CompilerError::new(
-                    "Número esperado para asignación",
-                    self.current_token.map_or(0, |t| t.line),
-                    self.current_token.map_or(0, |t| t.column),
-                ));
-            };
-        let body = self.parse_block()?;
-        
-        Ok(ASTNode::RepeatStatement {
-            count,
-            body,
-        })
-    }
-    
-    fn parse_condition(&mut self) -> Result<Condition, CompilerError> {
-        let mut condition = String::new();
-        
-        // Leer la condición hasta encontrar un token que indique el fin
-        while !self.is_at_end() && 
-               !self.matches(TokenType::Indent) && 
-               !self.matches(TokenType::ControlSentence)  
-        {
-            
-            if let Some(token) = self.current_token {
-                condition.push_str(&token.value);
-                condition.push(' ');
-                self.advance()?;
+        while self.current_token.is_some() {
+            if self.current_token.unwrap().token_type == TokenType::Indent {
+                self.advance(); // Saltar indentación
+            } else if self.current_token.unwrap().token_type == TokenType::Identifier {
+                let name = self.expect_identifier()?;
+                self.consume(TokenType::Declaration, "Esperado ':'")?;
+                
+                let data_type = match self.current_token {
+                    Some(token) if token.token_type == TokenType::Num || 
+                                   token.token_type == TokenType::Bool => {
+                        let dt = token.value.clone();
+                        self.advance();
+                        dt
+                    }
+                    _ => return Err(CompilerError::new(
+                        "Esperado tipo de dato",
+                        self.current_token.unwrap().line,
+                        self.current_token.unwrap().column
+                    )),
+                };
+                
+                declarations.push(VariableDeclaration { name, data_type });
             } else {
                 break;
             }
         }
         
-        // Limpiar espacios extra
-        let condition = condition.trim().to_string();
-        
-        // Si no hay condición, lanzar error
-        if condition.is_empty() {
-            return Err(CompilerError::new(
-                "Condición esperada después de Si o Sino",
-                self.current_token.map_or(0, |t| t.line),
-                self.current_token.map_or(0, |t| t.column),
-            ));
-        }
-        
-        Ok(Condition { expression: condition })
+        Ok(declarations)
     }
     
-    fn parse_elemental_instruction(&mut self) -> Result<ASTNode, CompilerError> {
-        let instruction = self.consume(TokenType::ElementalInstruction, None)?.value.clone();
-        let parameters = self.parse_parameter_list()?;
+    fn parse_areas(&mut self) -> Result<Vec<AreaNode>, CompilerError> {
+        let mut areas = Vec::new();
         
-        Ok(ASTNode::ElementalInstruction {
-            instruction,
-            parameters,
+        while self.current_token.is_some() {
+            if self.current_token.unwrap().token_type == TokenType::Identifier {
+                let name = self.expect_identifier()?;
+                self.consume(TokenType::Declaration, "Esperado ':'")?;
+                
+                let area_type = match self.current_token {
+                    Some(token) if token.token_type == TokenType::ElementalInstruction => {
+                        let at = token.value.clone();
+                        self.advance();
+                        at
+                    }
+                    _ => return Err(CompilerError::new(
+                        "Esperado tipo de área",
+                        self.current_token.unwrap().line,
+                        self.current_token.unwrap().column
+                    )),
+                };
+                
+                self.consume(TokenType::OpenedParenthesis, "Esperado '('")?;
+                
+                let mut coordinates = Vec::new();
+                for _ in 0..4 {
+                    if let Some(token) = self.current_token {
+                        if token.token_type == TokenType::Num {
+                            let num = token.value.parse::<i32>().map_err(|_| 
+                                CompilerError::new(
+                                    format!("Número inválido: {}", token.value),
+                                    token.line,
+                                    token.column
+                                )
+                            )?;
+                            coordinates.push(num);
+                            self.advance();
+                        }
+                        
+                        if coordinates.len() < 4 && self.current_token.is_some() &&
+                            self.current_token.unwrap().token_type == TokenType::Comma {
+                            self.advance();
+                        }
+                    }
+                }
+                
+                if coordinates.len() != 4 {
+                    return Err(CompilerError::new(
+                        "Se esperaban 4 coordenadas para el área",
+                        self.current_token.unwrap().line,
+                        self.current_token.unwrap().column
+                    ));
+                }
+                
+                self.consume(TokenType::ClosedParenthesis, "Esperado ')'")?;
+                
+                areas.push(AreaNode {
+                    name,
+                    area_type,
+                    coordinates: (coordinates[0], coordinates[1], coordinates[2], coordinates[3]),
+                });
+            } else {
+                break;
+            }
+        }
+        
+        Ok(areas)
+    }
+    
+    fn parse_robots(&mut self) -> Result<Vec<RobotNode>, CompilerError> {
+        let mut robots = Vec::new();
+        
+        while self.current_token.is_some() {
+            if self.current_token.unwrap().token_type == TokenType::Keyword &&
+                self.current_token.unwrap().value == "robot" {
+                self.advance(); // Consumir "robot"
+                let name = self.expect_identifier()?;
+                
+                // Parsear variables del robot
+                let variables = if self.current_token.is_some() &&
+                    self.current_token.unwrap().token_type == TokenType::Keyword &&
+                    self.current_token.unwrap().value == "variables" {
+                    self.advance(); // Consumir "variables"
+                    self.parse_variable_declarations()?
+                } else {
+                    Vec::new()
+                };
+                
+                // Parsear cuerpo del robot
+                self.consume(TokenType::Keyword, "Esperado 'comenzar'")?;
+                let body = self.parse_block()?;
+                self.consume(TokenType::Keyword, "Esperado 'fin'")?;
+                
+                robots.push(RobotNode {
+                    name,
+                    variables,
+                    body,
+                });
+            } else {
+                break;
+            }
+        }
+        
+        Ok(robots)
+    }
+    
+    fn parse_block(&mut self) -> Result<BlockNode, CompilerError> {
+        let mut statements = Vec::new();
+        
+        while self.current_token.is_some() {
+            match self.current_token {
+                Some(token) if token.token_type == TokenType::Indent => {
+                    self.advance(); // Saltar indentación
+                }
+                Some(token) if token.token_type == TokenType::Dedent => {
+                    self.advance(); // Saltar dedentación
+                    break; // Fin del bloque
+                }
+                Some(token) if token.token_type == TokenType::Keyword && token.value == "fin" => {
+                    break; // Fin del bloque
+                }
+                _ => {
+                    statements.push(self.parse_statement()?);
+                }
+            }
+        }
+        
+        Ok(BlockNode { statements })
+    }
+    
+    fn parse_statement(&mut self) -> Result<ASTNode, CompilerError> {
+        match self.current_token {
+            Some(token) if token.token_type == TokenType::Identifier => {
+                let identifier = self.expect_identifier()?;
+                
+                // Verificar si es una asignación
+                if self.current_token.is_some() && 
+                    self.current_token.unwrap().token_type == TokenType::Assign {
+                    self.advance(); // Consumir ":="
+                    let value = self.parse_expression()?;
+                    Ok(ASTNode::Assignment {
+                        variable: identifier,
+                        value: Box::new(value),
+                    })
+                } else {
+                    // Es una llamada a función
+                    self.parse_function_call_with_name(identifier)
+                }
+            }
+            Some(token) if token.token_type == TokenType::ElementalInstruction => {
+                let func_name = token.value.clone();
+                self.advance();
+                self.parse_function_call_with_name(func_name)
+            }
+            Some(token) if token.token_type == TokenType::ControlSentence => {
+                match token.value.as_str() {
+                    "si" => self.parse_if_statement(),
+                    "mientras" => self.parse_while_statement(),
+                    "repetir" => self.parse_repeat_statement(),
+                    _ => Err(CompilerError::new(
+                        format!("Sentencia de control desconocida: {}", token.value),
+                        token.line,
+                        token.column
+                    )),
+                }
+            }
+            _ => Err(CompilerError::new(
+                "Sentencia no reconocida",
+                self.current_token.unwrap().line,
+                self.current_token.unwrap().column
+            )),
+        }
+    }
+    
+    fn parse_function_call_with_name(&mut self, name: String) -> Result<ASTNode, CompilerError> {
+        let args = if self.current_token.is_some() && 
+            self.current_token.unwrap().token_type == TokenType::OpenedParenthesis {
+            self.advance(); // Consumir '('
+            let args = self.parse_argument_list()?;
+            self.consume(TokenType::ClosedParenthesis, "Esperado ')'")?;
+            args
+        } else {
+            Vec::new()
+        };
+        
+        Ok(ASTNode::FunctionCall { name, args })
+    }
+    
+    fn parse_argument_list(&mut self) -> Result<Vec<ASTNode>, CompilerError> {
+        let mut args = Vec::new();
+        
+        while self.current_token.is_some() && 
+            self.current_token.unwrap().token_type != TokenType::ClosedParenthesis {
+            args.push(self.parse_expression()?);
+            
+            if self.current_token.is_some() && 
+                self.current_token.unwrap().token_type == TokenType::Comma {
+                self.advance();
+            }
+        }
+        
+        Ok(args)
+    }
+    
+    fn parse_if_statement(&mut self) -> Result<ASTNode, CompilerError> {
+        self.advance(); // Consumir "si"
+        
+        // Parsear condición
+        let condition = if self.current_token.is_some() && 
+            self.current_token.unwrap().token_type == TokenType::OpenedParenthesis {
+            self.advance(); // Consumir '('
+            let cond = self.parse_expression()?;
+            self.consume(TokenType::ClosedParenthesis, "Esperado ')'")?;
+            cond
+        } else {
+            // Condición sin paréntesis (ej: si HayFlorEnLaEsquina)
+            self.parse_expression()?
+        };
+        
+        // Parsear bloque THEN
+        let then_block = self.parse_block()?;
+        
+        // Parsear ELSE opcional
+        let else_block = if self.current_token.is_some() && 
+            self.current_token.unwrap().token_type == TokenType::ControlSentence &&
+            self.current_token.unwrap().value == "sino" {
+            self.advance(); // Consumir "sino"
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        
+        Ok(ASTNode::IfStatement {
+            condition: Box::new(condition),
+            then_block,
+            else_block,
         })
     }
     
-    fn parse_parameter_list(&mut self) -> Result<Vec<String>, CompilerError> {
-        let mut parameters = Vec::new();
+    fn parse_while_statement(&mut self) -> Result<ASTNode, CompilerError> {
+        self.advance(); // Consumir "mientras"
         
-        if self.matches(TokenType::Parameter) {
-            let param_token = self.consume(TokenType::Parameter, None)?;
-            // Dividir parámetros por comas: "1,1,100,100" → ['1', '1', '100', '100']
-            parameters.extend(
-                param_token.value
-                    .split(',')
-                    .map(|p| p.trim().to_string())
-                    .filter(|p| !p.is_empty())
-            );
-        }
+        self.consume(TokenType::OpenedParenthesis, "Esperado '(' después de 'mientras'")?;
+        let condition = self.parse_expression()?;
+        self.consume(TokenType::ClosedParenthesis, "Esperado ')'")?;
         
-        Ok(parameters)
+        let body = self.parse_block()?;
+        
+        Ok(ASTNode::WhileStatement {
+            condition: Box::new(condition),
+            body,
+        })
     }
     
-    // Métodos auxiliares
-    fn consume(&mut self, expected_type: TokenType, expected_value: Option<&str>) -> Result<&'a Token, CompilerError> {
-        self.expect(expected_type, expected_value)?;
-        let token = self.current_token.ok_or_else(|| CompilerError::new(
-            "Token esperado pero se alcanzó el final",
-            0, 0
-        ))?;
+    fn parse_repeat_statement(&mut self) -> Result<ASTNode, CompilerError> {
+        self.advance(); // Consumir "repetir"
         
-        self.advance()?;
-        Ok(token)
+        let condition = self.parse_expression()?;
+        let body = self.parse_block()?;
+        
+        Ok(ASTNode::RepeatStatement {
+            condition: Box::new(condition),
+            body,
+        })
     }
     
-    fn consume_token(&mut self) -> Result<&'a Token, CompilerError> {
-        let token = self.current_token.ok_or_else(|| CompilerError::new(
-            "Token esperado pero se alcanzó el final",
-            0, 0
-        ))?;
-        
-        self.advance()?;
-        Ok(token)
+    fn parse_expression(&mut self) -> Result<ASTNode, CompilerError> {
+        self.parse_comparison()
     }
     
-    fn expect(&self, expected_type: TokenType, expected_value: Option<&str>) -> Result<(), CompilerError> {
-        if self.is_at_end() {
-            return Err(CompilerError::new(
-                format!("Se esperaba {:?} pero se alcanzó el final", expected_type),
-                0, 0
-            ));
+    fn parse_comparison(&mut self) -> Result<ASTNode, CompilerError> {
+        let mut left = self.parse_addition()?;
+        
+        while self.current_token.is_some() {
+            let operator = match self.current_token.unwrap().token_type {
+                TokenType::Less => BinaryOperator::Less,
+                TokenType::LessEqual => BinaryOperator::LessEqual,
+                TokenType::Greater => BinaryOperator::Greater,
+                TokenType::GreaterEqual => BinaryOperator::GreaterEqual,
+                TokenType::Equals => BinaryOperator::Equals,
+                TokenType::NotEquals => BinaryOperator::NotEquals,
+                _ => break,
+            };
+            
+            self.advance(); // Consumir operador
+            let right = self.parse_addition()?;
+            
+            left = ASTNode::BinaryOperation {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+            };
         }
         
-        let token = self.current_token.ok_or_else(|| CompilerError::new(
-            "Token actual no disponible",
-            0, 0
-        ))?;
+        Ok(left)
+    }
+    
+    fn parse_addition(&mut self) -> Result<ASTNode, CompilerError> {
+        let mut left = self.parse_multiplication()?;
         
-        if token.token_type != expected_type {
-            return Err(CompilerError::new(
-                format!("Se esperaba {:?}, se obtuvo {:?} en línea {}", 
-                    expected_type, token.token_type, token.line),
-                token.line,
-                token.column
-            ));
+        while self.current_token.is_some() {
+            let operator = match self.current_token.unwrap().token_type {
+                TokenType::Plus => BinaryOperator::Plus,
+                TokenType::Minus => BinaryOperator::Minus,
+                TokenType::And => BinaryOperator::And,
+                TokenType::Or => BinaryOperator::Or,
+                _ => break,
+            };
+            
+            self.advance(); // Consumir operador
+            let right = self.parse_multiplication()?;
+            
+            left = ASTNode::BinaryOperation {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+            };
         }
         
-        if let Some(expected_val) = expected_value {
-            if token.value != expected_val {
-                return Err(CompilerError::new(
-                    format!("Se esperaba '{}', se obtuvo '{}' en línea {}", 
-                        expected_val, token.value, token.line),
+        Ok(left)
+    }
+    
+    fn parse_multiplication(&mut self) -> Result<ASTNode, CompilerError> {
+        let mut left = self.parse_primary()?;
+        
+        while self.current_token.is_some() {
+            let operator = match self.current_token.unwrap().token_type {
+                TokenType::Multiply => BinaryOperator::Multiply,
+                TokenType::Divide => BinaryOperator::Divide,
+                _ => break,
+            };
+            
+            self.advance(); // Consumir operador
+            let right = self.parse_primary()?;
+            
+            left = ASTNode::BinaryOperation {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(left)
+    }
+    
+    fn parse_primary(&mut self) -> Result<ASTNode, CompilerError> {
+        match self.current_token {
+            Some(token) => match token.token_type {
+                TokenType::Identifier => {
+                    let name = token.value.clone();
+                    self.advance();
+                    Ok(ASTNode::Identifier(name))
+                }
+                TokenType::Num => {
+                    let value = token.value.parse::<i32>().map_err(|_| 
+                        CompilerError::new(
+                            format!("Número inválido: {}", token.value),
+                            token.line,
+                            token.column
+                        )
+                    )?;
+                    self.advance();
+                    Ok(ASTNode::NumberLiteral(value))
+                }
+                TokenType::BoolValue => {
+                    let value = match token.value.as_str() {
+                        "V" | "true" | "verdadero" => true,
+                        "F" | "false" | "falso" => false,
+                        _ => return Err(CompilerError::new(
+                            format!("Valor booleano inválido: {}", token.value),
+                            token.line,
+                            token.column
+                        )),
+                    };
+                    self.advance();
+                    Ok(ASTNode::BooleanLiteral(value))
+                }
+                TokenType::ElementalInstruction => {
+                    let func_name = token.value.clone();
+                    self.advance();
+                    self.parse_function_call_with_name(func_name)
+                }
+                TokenType::OpenedParenthesis => {
+                    self.advance(); // Consumir '('
+                    let expr = self.parse_expression()?;
+                    self.consume(TokenType::ClosedParenthesis, "Esperado ')'")?;
+                    Ok(expr)
+                }
+                TokenType::Not => {
+                    self.advance(); // Consumir '~'
+                    let expr = self.parse_primary()?;
+                    // NOT como operador binario especial (0 == expr)
+                    Ok(ASTNode::BinaryOperation {
+                        left: Box::new(ASTNode::NumberLiteral(0)),
+                        operator: BinaryOperator::Equals,
+                        right: Box::new(expr),
+                    })
+                }
+                _ => Err(CompilerError::new(
+                    format!("Expresión primaria inesperada: {:?}", token.token_type),
                     token.line,
                     token.column
-                ));
-            }
-        }
-        
-        Ok(())
-    }
-    
-    // Método matches con solo tipo
-    fn matches(&self, token_type: TokenType) -> bool {
-        if let Some(token) = self.current_token {
-            token.token_type == token_type
-        } else {
-            false
+                )),
+            },
+            None => Err(CompilerError::new(
+                "Se esperaba una expresión primaria",
+                0, 0
+            )),
         }
     }
-    
-    // Método matches con tipo y valor
-    fn matches_value(&self, token_type: TokenType, value: &str) -> bool {
-        if let Some(token) = self.current_token {
-            token.token_type == token_type && token.value == value
-        } else {
-            false
-        }
-    }
-    
-    fn is_next_section(&self) -> bool {
-        let next_tokens = ["procesos", "areas", "robots", "variables", "comenzar"];
-        
-        if let Some(token) = self.current_token {
-            token.token_type == TokenType::Keyword && 
-            next_tokens.contains(&token.value.as_str())
-        } else {
-            false
-        }
-    }
-    
-    fn advance(&mut self) -> Result<(), CompilerError> {
-        self.position += 1;
-        if self.position < self.tokens.len() {
-            self.current_token = Some(&self.tokens[self.position]);
-        } else {
-            self.current_token = None;
-        }
-        Ok(())
-    }
-    
-    fn is_at_end(&self) -> bool {
-        self.position >= self.tokens.len() || 
-        self.current_token.map_or(true, |t| t.token_type == TokenType::EndFile)
-    }
-    
-    // Método de utilidad para depuración
-    pub fn debug_ast(node: &ASTNode, indent: usize) {
-        let spaces = "  ".repeat(indent);
-        
-        match node {
-            ASTNode::Program { name, body } => {
-                println!("{}Programa: {}", spaces, name);
-                for item in body {
-                    Parser::debug_ast(item, indent + 1);
-                }
-            }
-            ASTNode::ProcesosSection { procesos } => {
-                println!("{}Sección Procesos:", spaces);
-                for proceso in procesos {
-                    Parser::debug_ast(proceso, indent + 1);
-                }
-            }
-            ASTNode::Proceso { name, parameters, variables, body } => {
-                println!("{}Proceso: {}", spaces, name);
-                if !parameters.is_empty() {
-                    println!("{}  Parámetros:", spaces);
-                    for param in parameters {
-                        println!("{}    {} {}: {}", spaces, param.direction, param.name, param.param_type);
+}
+
+// Funciones de utilidad para imprimir/debuggear el AST
+impl ASTNode {
+    pub fn pretty_print(&self, indent: usize) -> String {
+        let indent_str = "  ".repeat(indent);
+        match self {
+            ASTNode::Program { name, procedures, areas, robots, global_vars, main_block } => {
+                let mut result = format!("{}Programa: {}\n", indent_str, name);
+                
+                if !procedures.is_empty() {
+                    result.push_str(&format!("{}Procedimientos:\n", indent_str));
+                    for proc in procedures {
+                        result.push_str(&proc.pretty_print(indent + 1));
                     }
                 }
-                if let Some(vars) = variables {
-                    Parser::debug_ast(vars, indent + 1);
-                }
-                println!("{}  Cuerpo:", spaces);
-                for stmt in body {
-                    Parser::debug_ast(stmt, indent + 2);
-                }
-            }
-            ASTNode::AreasSection { areas } => {
-                println!("{}Sección Áreas:", spaces);
-                for area in areas {
-                    Parser::debug_ast(area, indent + 1);
-                }
-            }
-            ASTNode::AreaDefinition { name, area_type, dimensions } => {
-                println!("{}Área: {} ({}) [{}]", spaces, name, area_type, dimensions.join(", "));
-            }
-            ASTNode::RobotsSection { robots } => {
-                println!("{}Sección Robots:", spaces);
-                for robot in robots {
-                    Parser::debug_ast(robot, indent + 1);
-                }
-            }
-            ASTNode::Robot { name, variables, body } => {
-                println!("{}Robot: {}", spaces, name);
-                if let Some(vars) = variables {
-                    println!("{}  Variables:", spaces);
-                    for var in vars {
-                        Parser::debug_ast(var, indent + 2);
+                
+                if !areas.is_empty() {
+                    result.push_str(&format!("{}Áreas:\n", indent_str));
+                    for area in areas {
+                        result.push_str(&area.pretty_print(indent + 1));
                     }
                 }
-                println!("{}  Cuerpo:", spaces);
-                for stmt in body {
-                    Parser::debug_ast(stmt, indent + 2);
-                }
-            }
-            ASTNode::VariablesSection { declarations } => {
-                println!("{}Sección Variables:", spaces);
-                for decl in declarations {
-                    Parser::debug_ast(decl, indent + 1);
-                }
-            }
-            ASTNode::VariableDeclaration { name, variable_type } => {
-                println!("{}Variable: {}: {}", spaces, name, variable_type);
-            }
-            ASTNode::MainBlock { body } => {
-                println!("{}Bloque Principal:", spaces);
-                for stmt in body {
-                    Parser::debug_ast(stmt, indent + 1);
-                }
-            }
-            ASTNode::IfStatement { condition, consequent, alternate } => {
-                println!("{}Si: {}", spaces, condition.expression);
-                println!("{}  Entonces:", spaces);
-                for stmt in consequent {
-                    Parser::debug_ast(stmt, indent + 2);
-                }
-                if let Some(alt) = alternate {
-                    println!("{}  Sino:", spaces);
-                    for stmt in alt {
-                        Parser::debug_ast(stmt, indent + 2);
+                
+                if !robots.is_empty() {
+                    result.push_str(&format!("{}Robots:\n", indent_str));
+                    for robot in robots {
+                        result.push_str(&robot.pretty_print(indent + 1));
                     }
                 }
+                
+                if !global_vars.is_empty() {
+                    result.push_str(&format!("{}Variables globales:\n", indent_str));
+                    for var in global_vars {
+                        result.push_str(&var.pretty_print(indent + 1));
+                    }
+                }
+                
+                result.push_str(&format!("{}Bloque principal:\n", indent_str));
+                result.push_str(&main_block.pretty_print(indent + 1));
+                
+                result
+            }
+            ASTNode::Assignment { variable, value } => {
+                format!("{}{} := {}\n", indent_str, variable, value.pretty_print(0))
+            }
+            ASTNode::FunctionCall { name, args } => {
+                let args_str = args.iter()
+                    .map(|arg| arg.pretty_print(0))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                format!("{}{}({})\n", indent_str, name, args_str)
+            }
+            ASTNode::Identifier(name) => format!("{}", name),
+            ASTNode::NumberLiteral(value) => format!("{}", value),
+            ASTNode::BooleanLiteral(value) => format!("{}", value),
+            ASTNode::IfStatement { condition, then_block, else_block } => {
+                let mut result = format!("{}SI {} ENTONCES\n", 
+                    indent_str, condition.pretty_print(0));
+                result.push_str(&then_block.pretty_print(indent + 1));
+                
+                if let Some(else_block) = else_block {
+                    result.push_str(&format!("{}SINO\n", indent_str));
+                    result.push_str(&else_block.pretty_print(indent + 1));
+                }
+                
+                result
             }
             ASTNode::WhileStatement { condition, body } => {
-                println!("{}Mientras: {}", spaces, condition.expression);
-                for stmt in body {
-                    Parser::debug_ast(stmt, indent + 1);
-                }
+                format!("{}MIENTRAS {} HACER\n{}",
+                    indent_str, condition.pretty_print(0), body.pretty_print(indent + 1))
             }
-            ASTNode::RepeatStatement { count, body } => {
-                println!("{}Repetir {} veces:", spaces, count);
-                for stmt in body {
-                    Parser::debug_ast(stmt, indent + 1);
-                }
+            ASTNode::RepeatStatement { condition, body } => {
+                format!("{}REPETIR {} HACER\n{}",
+                    indent_str, condition.pretty_print(0), body.pretty_print(indent + 1))
             }
-            ASTNode::Assignment { target, operator, value } => {
-                if let Some(tgt) = target {
-                    println!("{}Asignación: {} {} {}", spaces, tgt, operator, value);
-                } else {
-                    println!("{}Asignación: {} {}", spaces, operator, value);
-                }
+            ASTNode::BinaryOperation { left, operator, right } => {
+                let op_str = match operator {
+                    BinaryOperator::Plus => "+",
+                    BinaryOperator::Minus => "-",
+                    BinaryOperator::Multiply => "*",
+                    BinaryOperator::Divide => "/",
+                    BinaryOperator::Less => "<",
+                    BinaryOperator::LessEqual => "<=",
+                    BinaryOperator::Greater => ">",
+                    BinaryOperator::GreaterEqual => ">=",
+                    BinaryOperator::Equals => "==",
+                    BinaryOperator::NotEquals => "<>",
+                    BinaryOperator::And => "&",
+                    BinaryOperator::Or => "|",
+                };
+                format!("({} {} {})", left.pretty_print(0), op_str, right.pretty_print(0))
             }
-            ASTNode::ElementalInstruction { instruction, parameters } => {
-                println!("{}Instrucción: {} ({})", spaces, instruction, parameters.join(", "));
-            }
-            ASTNode::ProcessCall { name, parameters } => {
-                println!("{}Llamada a proceso: {} ({})", spaces, name, parameters.join(", "));
-            }
-            _ => println!("{}Nodo: {:?}", spaces, node),
+            _ => format!("{}[Otro nodo]\n", indent_str),
         }
+    }
+}
+
+impl ProcedureNode {
+    pub fn pretty_print(&self, indent: usize) -> String {
+        let indent_str = "  ".repeat(indent);
+        let mut result = format!("{}Proceso {}(", indent_str, self.name);
+        
+        let params_str = self.parameters.iter()
+            .map(|p| p.pretty_print())
+            .collect::<Vec<String>>()
+            .join(", ");
+        result.push_str(&format!("{})\n", params_str));
+        
+        if !self.variables.is_empty() {
+            result.push_str(&format!("{}  Variables:\n", indent_str));
+            for var in &self.variables {
+                result.push_str(&var.pretty_print(indent + 2));
+            }
+        }
+        
+        result.push_str(&format!("{}  Cuerpo:\n", indent_str));
+        result.push_str(&self.body.pretty_print(indent + 2));
+        
+        result
+    }
+}
+
+impl Parameter {
+    pub fn pretty_print(&self) -> String {
+        let type_str = match self.param_type {
+            ParameterType::In => "E",
+            ParameterType::Out => "S",
+            ParameterType::InOut => "ES",
+        };
+        format!("{} {}: {}", type_str, self.name, self.data_type)
+    }
+}
+
+impl VariableDeclaration {
+    pub fn pretty_print(&self, indent: usize) -> String {
+        let indent_str = "  ".repeat(indent);
+        format!("{}{}: {}\n", indent_str, self.name, self.data_type)
+    }
+}
+
+impl RobotNode {
+    pub fn pretty_print(&self, indent: usize) -> String {
+        let indent_str = "  ".repeat(indent);
+        let mut result = format!("{}Robot {}\n", indent_str, self.name);
+        
+        if !self.variables.is_empty() {
+            result.push_str(&format!("{}  Variables:\n", indent_str));
+            for var in &self.variables {
+                result.push_str(&var.pretty_print(indent + 2));
+            }
+        }
+        
+        result.push_str(&format!("{}  Cuerpo:\n", indent_str));
+        result.push_str(&self.body.pretty_print(indent + 2));
+        
+        result
+    }
+}
+
+impl AreaNode {
+    pub fn pretty_print(&self, indent: usize) -> String {
+        let indent_str = "  ".repeat(indent);
+        format!("{}{}: {}({}, {}, {}, {})\n", 
+            indent_str, self.name, self.area_type,
+            self.coordinates.0, self.coordinates.1,
+            self.coordinates.2, self.coordinates.3)
+    }
+}
+
+impl BlockNode {
+    pub fn pretty_print(&self, indent: usize) -> String {
+        let mut result = String::new();
+        for stmt in &self.statements {
+            result.push_str(&stmt.pretty_print(indent));
+        }
+        result
     }
 }

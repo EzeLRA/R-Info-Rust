@@ -18,6 +18,7 @@ procesos
             paso := paso + 1
         si HayFlorEnLaEsquina
             paso := 0
+            paso := 2
         sino
             mover
             derecha

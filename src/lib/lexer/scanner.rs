@@ -13,6 +13,7 @@ pub struct Lexer<'a> {
     at_line_start: bool,
     current_indent: usize,
     keywords: Keywords,
+    paren_stack: Vec<(char, usize, usize)>, // (tipo de paréntesis, línea, columna)
 }
 
 impl<'a> Lexer<'a> {
@@ -30,6 +31,7 @@ impl<'a> Lexer<'a> {
             at_line_start: true,
             current_indent: 0,
             keywords: Keywords::new(),
+            paren_stack: Vec::new(),
         }
     }
     
@@ -47,6 +49,7 @@ impl<'a> Lexer<'a> {
             at_line_start: true,
             current_indent: 0,
             keywords,
+            paren_stack: Vec::new(),
         }
     }
     
@@ -58,16 +61,23 @@ impl<'a> Lexer<'a> {
         self.at_line_start = true;
         self.indent_stack = vec![0];
         self.current_indent = 0;
+        self.paren_stack.clear();
         
         while self.position < self.chars.len() {
             let char = self.chars[self.position];
             
             match char {
                 // Comentarios
-                '{' => self.read_comment()?,
+                '{' => {
+                    self.read_comment()?;
+                    continue;
+                }
                 
-                // Parámetros
-                '(' => self.read_parameter()?,
+                // Paréntesis que abre
+                '(' => self.handle_open_parenthesis()?,
+                
+                // Paréntesis que cierra
+                ')' => self.handle_close_parenthesis()?,
                 
                 // Nueva línea
                 '\n' => {
@@ -109,6 +119,9 @@ impl<'a> Lexer<'a> {
             }
         }
         
+        // Verificar paréntesis sin cerrar al final del archivo
+        self.check_unclosed_parentheses()?;
+        
         // Añadir tokens DEDENT finales
         while self.indent_stack.len() > 1 {
             self.tokens.push(Token::new(
@@ -129,6 +142,80 @@ impl<'a> Lexer<'a> {
         ));
         
         Ok(self.tokens.clone())
+    }
+    
+    fn handle_open_parenthesis(&mut self) -> Result<(), CompilerError> {
+        let start_line = self.line;
+        let start_column = self.column;
+        
+        // Añadir a la pila de paréntesis
+        self.paren_stack.push(('(', start_line, start_column));
+        
+        // Crear token de paréntesis que abre
+        self.tokens.push(Token::new(
+            TokenType::OpenedParenthesis,
+            "(".to_string(),
+            start_line,
+            start_column
+        ));
+        
+        self.position += 1;
+        self.column += 1;
+        self.at_line_start = false;
+        
+        Ok(())
+    }
+    
+    fn handle_close_parenthesis(&mut self) -> Result<(), CompilerError> {
+        let start_line = self.line;
+        let start_column = self.column;
+        
+        // Verificar si hay paréntesis que abrir
+        if self.paren_stack.is_empty() {
+            return Err(CompilerError::new(
+                "Paréntesis de cierre sin apertura correspondiente".to_string(),
+                start_line,
+                start_column
+            ));
+        }
+        
+        // Verificar que el paréntesis que cierra corresponda al que abre
+        let last_paren = self.paren_stack.last().unwrap();
+        if last_paren.0 != '(' {
+            return Err(CompilerError::new(
+                "Paréntesis de cierre no corresponde con la apertura".to_string(),
+                start_line,
+                start_column
+            ));
+        }
+        
+        // Remover de la pila
+        self.paren_stack.pop();
+        
+        // Crear token de paréntesis que cierra
+        self.tokens.push(Token::new(
+            TokenType::ClosedParenthesis,
+            ")".to_string(),
+            start_line,
+            start_column
+        ));
+        
+        self.position += 1;
+        self.column += 1;
+        self.at_line_start = false;
+        
+        Ok(())
+    }
+    
+    fn check_unclosed_parentheses(&self) -> Result<(), CompilerError> {
+        for (paren_type, line, column) in &self.paren_stack {
+            return Err(CompilerError::new(
+                format!("Paréntesis '{}' sin cerrar", paren_type),
+                *line,
+                *column
+            ));
+        }
+        Ok(())
     }
     
     fn handle_indentation(&mut self) -> Result<(), CompilerError> {
@@ -216,11 +303,6 @@ impl<'a> Lexer<'a> {
             self.column += 1;
             self.at_line_start = false;
         }
-    }
-    
-    // Método anterior renombado para claridad
-    fn skip_whitespace(&mut self) {
-        self.skip_whitespace_only();
     }
     
     fn read_number(&mut self) -> Result<(), CompilerError> {
@@ -376,36 +458,35 @@ impl<'a> Lexer<'a> {
     fn read_operator(&mut self) -> Result<(), CompilerError> {
         let start_line = self.line;
         let start_column = self.column;
+        let first_char = self.chars[self.position];
         
-        // Primero intentar identificar operadores de dos caracteres y a la vez si tiene caracteres suficientes
-        if (self.position + 1 < self.chars.len())||(self.position >= self.chars.len()) {
-            let first_char = self.chars[self.position];
+        // Verificar si hay suficientes caracteres para un operador de dos caracteres
+        if self.position + 1 < self.chars.len() {
             let second_char = self.chars[self.position + 1];
             let two_char_op = format!("{}{}", first_char, second_char);
-            let value_res = two_char_op.clone();
-
+            
             // Lista de operadores de dos caracteres
-            let token = match two_char_op.as_str() {
-                ":=" => {TokenType::Assign}
-                "<>" => {TokenType::NotEquals}
-                "<=" => {TokenType::LessEqual}
-                ">=" => {TokenType::GreaterEqual}
-                "==" => {TokenType::Equals}
+            let (token_type, value, chars_to_consume) = match two_char_op.as_str() {
+                ":=" => (TokenType::Assign, two_char_op, 2),
+                "<>" => (TokenType::NotEquals, two_char_op, 2),
+                "<=" => (TokenType::LessEqual, two_char_op, 2),
+                ">=" => (TokenType::GreaterEqual, two_char_op, 2),
+                "==" => (TokenType::Equals, two_char_op, 2),
                 _ => {
-                    // No es un operador de dos caracteres, se continua con un caracter
-                    match first_char {
-                        ',' => {TokenType::Comma}
-                        ':' => {TokenType::Declaration}
-                        '&' => {TokenType::And}
-                        '|' => {TokenType::Or}
-                        '~' => {TokenType::Not}
-                        '+' => {TokenType::Plus}
-                        '-' => {TokenType::Minus}
-                        '*' => {TokenType::Multiply}
-                        '/' => {TokenType::Divide}
-                        '=' => {TokenType::Equals}
-                        '<' => {TokenType::Less}
-                        '>' => {TokenType::Greater}
+                    // No es un operador de dos caracteres, usar un solo carácter
+                    let (token_type, value) = match first_char {
+                        ',' => (TokenType::Comma, first_char.to_string()),
+                        ':' => (TokenType::Declaration, first_char.to_string()),
+                        '&' => (TokenType::And, first_char.to_string()),
+                        '|' => (TokenType::Or, first_char.to_string()),
+                        '~' => (TokenType::Not, first_char.to_string()),
+                        '+' => (TokenType::Plus, first_char.to_string()),
+                        '-' => (TokenType::Minus, first_char.to_string()),
+                        '*' => (TokenType::Multiply, first_char.to_string()),
+                        '/' => (TokenType::Divide, first_char.to_string()),
+                        '=' => (TokenType::Equals, first_char.to_string()),
+                        '<' => (TokenType::Less, first_char.to_string()),
+                        '>' => (TokenType::Greater, first_char.to_string()),
                         _ => {
                             return Err(CompilerError::new(
                                 format!("Operador no reconocido: '{}'", first_char),
@@ -413,27 +494,59 @@ impl<'a> Lexer<'a> {
                                 start_column
                             ));
                         }
-                    }
-                    
+                    };
+                    (token_type, value, 1)
                 }
             };
-
+            
             self.tokens.push(Token::new(
-                token,
-                value_res,
+                token_type,
+                value,
                 start_line,
                 start_column
             ));
-            self.position += 2;
-            self.column += 2;
+            
+            self.position += chars_to_consume;
+            self.column += chars_to_consume;
+            self.at_line_start = false;
             return Ok(());
         }
-        return Err(CompilerError::new(
-            format!("Operador sin caracteres suficientes"),
+        
+        // Solo queda un carácter, manejar operadores de un solo carácter
+        let (token_type, value) = match first_char {
+            ',' => (TokenType::Comma, first_char.to_string()),
+            ':' => (TokenType::Declaration, first_char.to_string()),
+            '&' => (TokenType::And, first_char.to_string()),
+            '|' => (TokenType::Or, first_char.to_string()),
+            '~' => (TokenType::Not, first_char.to_string()),
+            '+' => (TokenType::Plus, first_char.to_string()),
+            '-' => (TokenType::Minus, first_char.to_string()),
+            '*' => (TokenType::Multiply, first_char.to_string()),
+            '/' => (TokenType::Divide, first_char.to_string()),
+            '=' => (TokenType::Equals, first_char.to_string()),
+            '<' => (TokenType::Less, first_char.to_string()),
+            '>' => (TokenType::Greater, first_char.to_string()),
+            _ => {
+                return Err(CompilerError::new(
+                    format!("Operador no reconocido: '{}'", first_char),
+                    start_line,
+                    start_column
+                ));
+            }
+        };
+        
+        self.tokens.push(Token::new(
+            token_type,
+            value,
             start_line,
             start_column
         ));
         
+        self.position += 1;
+        self.column += 1;
+        self.at_line_start = false;
+        
+        Ok(())
     }
     
     fn read_comment(&mut self) -> Result<(), CompilerError> {
@@ -467,50 +580,6 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    fn read_parameter(&mut self) -> Result<(), CompilerError> {
-        let start_line = self.line;
-        let start_column = self.column;
-        
-        self.position += 1; // Saltar '('
-        self.column += 1;
-        
-        let mut value = String::new();
-        
-        while self.position < self.chars.len() && self.chars[self.position] != ')' {
-            let c = self.chars[self.position];
-            value.push(c);
-            
-            if c == '\n' {
-                self.line += 1;
-                self.column = 1;
-            } else {
-                self.column += 1;
-            }
-            
-            self.position += 1;
-        }
-        
-        if self.position >= self.chars.len() {
-            return Err(CompilerError::new(
-                "Parámetro sin cerrar",
-                start_line,
-                start_column
-            ));
-        }
-        
-        self.position += 1; // Saltar ')'
-        self.column += 1;
-        
-        self.tokens.push(Token::new(
-            TokenType::Parameter,
-            value,
-            start_line,
-            start_column
-        ));
-        
-        Ok(())
-    }
-    
     // Método de utilidad para depuración
     pub fn debug_tokens(&self) {
         println!("=== Tokens generados ===");
@@ -521,6 +590,17 @@ impl<'a> Lexer<'a> {
                 token.line,
                 token.column
             );
+        }
+        
+        // Mostrar estadísticas de paréntesis
+        println!("\n=== Balance de paréntesis ===");
+        if self.paren_stack.is_empty() {
+            println!("Todos los paréntesis están balanceados");
+        } else {
+            println!("Paréntesis sin cerrar: {}", self.paren_stack.len());
+            for (paren_type, line, column) in &self.paren_stack {
+                println!("  '{}' en línea {}, columna {}", paren_type, line, column);
+            }
         }
     }
     
@@ -533,5 +613,15 @@ impl<'a> Lexer<'a> {
         }
         
         stats
+    }
+    
+    // Método para verificar el balance de paréntesis
+    pub fn is_parentheses_balanced(&self) -> bool {
+        self.paren_stack.is_empty()
+    }
+    
+    // Método para obtener información sobre paréntesis no cerrados
+    pub fn get_unclosed_parentheses(&self) -> Vec<(char, usize, usize)> {
+        self.paren_stack.clone()
     }
 }

@@ -3,7 +3,9 @@ use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenType {
-    Parameter,
+    ParameterType,
+    OpenedParenthesis,
+    ClosedParenthesis,
     Str,
     Num,
     Bool,
@@ -37,7 +39,9 @@ pub enum TokenType {
 impl TokenType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TokenType::Parameter => "PARAMETER",
+            TokenType::ParameterType => "PARAMETER_TYPE",
+            TokenType::OpenedParenthesis => "OPENED_PARENTHESIS",
+            TokenType::ClosedParenthesis => "CLOSED_PARENTHESIS",
             TokenType::Str => "STRING",
             TokenType::Num => "NUMBER",
             TokenType::Bool => "BOOLEAN",
@@ -154,6 +158,8 @@ impl Keywords {
         types_defined.insert("booleano".to_string(), TokenType::Bool);
         types_defined.insert("V".to_string(), TokenType::BoolValue);
         types_defined.insert("F".to_string(), TokenType::BoolValue);
+        types_defined.insert("E".to_string(), TokenType::ParameterType);
+        types_defined.insert("ES".to_string(), TokenType::ParameterType);
 
         let mut keyword_map = HashMap::new();
 

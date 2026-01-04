@@ -1,7 +1,7 @@
 use crate::lib::lexer::scanner::Lexer;
 use crate::lib::lexer::token::Keywords;
 use crate::lib::parser::processor::Parser;
-use crate::lib::semanticizer::analizer::SemanticAnalyzer;
+//use crate::lib::semanticizer::analizer::SemanticAnalyzer;
 use std::fs;
 
 mod lib;
@@ -17,31 +17,18 @@ fn main() {
             for token in &tokens {
                 println!("{:?}", token);
             }
+            
             //Parser
-            let mut prser = Parser::new(&tokens,Keywords::new());
-            match prser.parse() {
+            let mut parser = Parser::new(&tokens);
+
+            match parser.parse() {
                 Ok(ast) => {
-                    println!("{:#?}", ast);
-                    //Semantic Analyzer
-                    let mut analyzer = SemanticAnalyzer::new();
-                    let result = analyzer.analyze(&ast);
-    
-                    if result.success {
-                        println!("Análisis semántico exitoso!");
-                        println!("Total de instrucciones: {}", result.summary.total_instructions);
-                        println!("Conexiones detectadas: {}", result.summary.total_conexiones);
-                    } else {
-                        eprintln!("Errores encontrados:");
-                        for error in result.errors {
-                            eprintln!("  - {}", error);
-                        }
-                    }
+                    println!("{:?}", ast);
                 }
                 Err(e) => {
-                    eprintln!("Parsing error: {}", e);
+                    println!("Error al generar el AST: {}", e);
                 }
             }
-            
         }
         Err(e) => {
             eprintln!("Lexing error: {}", e);
