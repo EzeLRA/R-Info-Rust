@@ -19,6 +19,7 @@ fn main() {
             }
             
             //Parser
+            
             let mut parser = Parser::new(&tokens);
 
             match parser.parse() {
@@ -29,6 +30,7 @@ fn main() {
                     println!("Error al generar el AST: {}", e);
                 }
             }
+            
         }
         Err(e) => {
             eprintln!("Lexing error: {}", e);
