@@ -2,7 +2,26 @@ use std::collections::HashMap;
 use crate::lib::compilerError::CompilerError;
 use super::super::lexer::token::{Token, TokenType};
 
-// Estructuras del AST
+#[derive(Debug, Clone)]
+pub struct RobotInstanciado {
+    pub nombre: String,
+    pub tipo: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AsignacionArea {
+    pub robot: Expresion,
+    pub area: Expresion,
+}
+
+#[derive(Debug, Clone)]
+pub struct InicializacionRobot {
+    pub robot: Expresion,
+    pub pos_x: Expresion,
+    pub pos_y: Expresion,
+}
+
+// Estrutura principal del Ast
 #[derive(Debug, Clone)]
 pub struct Program {
     pub nombre: String,
@@ -10,6 +29,9 @@ pub struct Program {
     pub areas: Vec<Area>,
     pub robots_declarados: Vec<String>, // Nombres de tipos de robot
     pub robots_definidos: Vec<Robot>,   // Definiciones completas de robots
+    pub robots_instanciados: Vec<RobotInstanciado>, // Robots declarados en sección variables
+    pub asignaciones_areas: Vec<AsignacionArea>, // Asignaciones de área en el main
+    pub inicializaciones: Vec<InicializacionRobot>, // Inicializaciones de posición
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +78,7 @@ pub enum Instruccion {
     Repetir { condicion: Expresion, cuerpo: Vec<Instruccion> },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone,PartialEq)]
 pub enum Expresion {
     Identificador(String),
     Numero(i32),
@@ -131,6 +153,7 @@ impl<'a> Parser<'a> {
         let mut areas = Vec::new();
         let mut robots_declarados = Vec::new();
         let mut robots_definidos = Vec::new();
+        let mut robots_instanciados: Vec<RobotInstanciado> = Vec::new(); // Nuevo: robots declarados en sección variables
         
         // Parsear secciones
         while let Some(token) = self.current {
@@ -151,15 +174,80 @@ impl<'a> Parser<'a> {
                         robots_definidos = definidos;
                     }
                     "variables" => {
-                        // Variables globales - saltar por ahora
-                        self.avanzar();
+                        self.avanzar(); // consumir "variables"
+                        
+                        // Parsear declaraciones de variables globales (instanciación de robots)
                         while let Some(t) = self.current {
-                            if t.token_type == TokenType::Identifier || 
-                               t.token_type == TokenType::Indent ||
-                               t.token_type == TokenType::Dedent {
+                            // Saltar indentación
+                            if t.token_type == TokenType::Indent || t.token_type == TokenType::Dedent {
                                 self.avanzar();
-                            } else {
+                                continue;
+                            }
+                            
+                            // Si encontramos "comenzar", terminamos la sección de variables
+                            if t.token_type == TokenType::Keyword && t.value == "comenzar" {
                                 break;
+                            }
+                            
+                            // Parsear declaración de robot: nombre_instancia : tipo_robot
+                            if t.token_type == TokenType::Identifier {
+                                let nombre_instancia = t.value.clone();
+                                self.avanzar();
+                                
+                                // Verificar que siga el operador de declaración
+                                if let Some(next_token) = self.current {
+                                    if next_token.token_type == TokenType::Declaration {
+                                        self.avanzar(); // consumir ":"
+                                        
+                                        // Obtener el tipo de robot
+                                        if let Some(tipo_token) = self.current {
+                                            if tipo_token.token_type == TokenType::Identifier {
+                                                let tipo_robot = tipo_token.value.clone();
+                                                self.avanzar();
+                                                
+                                                // Verificar que el tipo de robot esté definido
+                                                if !robots_declarados.contains(&tipo_robot) {
+                                                    return Err(CompilerError::new(
+                                                        format!("Tipo de robot no definido: {}", tipo_robot),
+                                                        tipo_token.line,
+                                                        tipo_token.column
+                                                    ));
+                                                }
+                                                
+                                                robots_instanciados.push(RobotInstanciado {
+                                                    nombre: nombre_instancia,
+                                                    tipo: tipo_robot,
+                                                });
+                                            } else {
+                                                return Err(CompilerError::new(
+                                                    "Esperado tipo de robot después de ':'",
+                                                    tipo_token.line,
+                                                    tipo_token.column
+                                                ));
+                                            }
+                                        } else {
+                                            return Err(CompilerError::new(
+                                                "Declaración de robot incompleta",
+                                                t.line,
+                                                t.column
+                                            ));
+                                        }
+                                    } else {
+                                        return Err(CompilerError::new(
+                                            "Esperado ':' en declaración de robot",
+                                            next_token.line,
+                                            next_token.column
+                                        ));
+                                    }
+                                } else {
+                                    return Err(CompilerError::new(
+                                        "Declaración de robot incompleta",
+                                        t.line,
+                                        t.column
+                                    ));
+                                }
+                            } else {
+                                self.avanzar(); // saltar otros tokens
                             }
                         }
                     }
@@ -175,6 +263,9 @@ impl<'a> Parser<'a> {
         
         // Parsear bloque principal (instrucciones después de "comenzar")
         let mut instrucciones_principales = Vec::new();
+        let mut asignaciones_areas = Vec::new();
+        let mut inicializaciones = Vec::new();
+        
         if let Some(token) = self.current {
             if token.token_type == TokenType::Keyword && token.value == "comenzar" {
                 self.avanzar(); // consumir "comenzar"
@@ -183,11 +274,33 @@ impl<'a> Parser<'a> {
                         self.avanzar();
                         break;
                     } else if token.token_type == TokenType::Indent || 
-                              token.token_type == TokenType::Dedent {
+                            token.token_type == TokenType::Dedent {
                         self.avanzar();
                     } else {
                         if let Ok(instr) = self.parse_instruccion() {
-                            instrucciones_principales.push(instr);
+                            // Clasificar las instrucciones principales
+                            match &instr {
+                                Instruccion::LlamadaFuncion { nombre, argumentos } => {
+                                    if nombre == "AsignarArea" && argumentos.len() == 2 {
+                                        // Capturar asignación de área
+                                        asignaciones_areas.push(AsignacionArea {
+                                            robot: argumentos[0].clone(),
+                                            area: argumentos[1].clone(),
+                                        });
+                                    } else if nombre == "Iniciar" && argumentos.len() == 3 {
+                                        // Capturar inicialización de robot
+                                        inicializaciones.push(InicializacionRobot {
+                                            robot: argumentos[0].clone(),
+                                            pos_x: argumentos[1].clone(),
+                                            pos_y: argumentos[2].clone(),
+                                        });
+                                    }
+                                    instrucciones_principales.push(instr);
+                                }
+                                _ => {
+                                    instrucciones_principales.push(instr);
+                                }
+                            }
                         } else {
                             self.avanzar(); // saltar si hay error
                         }
@@ -196,7 +309,27 @@ impl<'a> Parser<'a> {
             }
         }
         
-        // Agregar instrucciones principales como un robot especial
+        // Validar que todos los robots instanciados tengan asignación de área e inicialización
+        for robot in &robots_instanciados {
+            let nombre_robot_exp = Expresion::Identificador(robot.nombre.clone());
+            
+            // Verificar asignación de área
+            let tiene_asignacion_area = asignaciones_areas.iter()
+                .any(|asig| asig.robot == nombre_robot_exp);
+            
+            if !tiene_asignacion_area {
+                println!("Advertencia: Robot '{}' no tiene asignación de área", robot.nombre);
+            }
+            
+            // Verificar inicialización
+            let tiene_inicializacion = inicializaciones.iter()
+                .any(|init| init.robot == nombre_robot_exp);
+            
+            if !tiene_inicializacion {
+                println!("Advertencia: Robot '{}' no tiene inicialización", robot.nombre);
+            }
+        }
+        
         if !instrucciones_principales.is_empty() {
             robots_definidos.push(Robot {
                 nombre: "main".to_string(),
@@ -211,6 +344,9 @@ impl<'a> Parser<'a> {
             areas,
             robots_declarados,
             robots_definidos,
+            robots_instanciados: robots_instanciados,
+            asignaciones_areas: asignaciones_areas,
+            inicializaciones: inicializaciones,
         })
     }
     
@@ -218,12 +354,10 @@ impl<'a> Parser<'a> {
         let mut procesos = Vec::new();
         
         while let Some(token) = self.current {
-            if token.token_type == TokenType::Indent {
+            if (token.token_type == TokenType::Indent) || (token.token_type == TokenType::Dedent){
                 self.avanzar();
             } else if token.token_type == TokenType::Keyword && token.value == "proceso" {
                 procesos.push(self.parse_proceso()?);
-            } else if token.token_type == TokenType::Dedent {
-                self.avanzar();
             } else {
                 break;
             }
@@ -517,15 +651,21 @@ impl<'a> Parser<'a> {
     
     fn parse_instruccion(&mut self) -> Result<Instruccion, CompilerError> {
         if let Some(token) = self.current {
+            let start_line = token.line; // Guardar línea inicial
+            
             match token.token_type {
                 TokenType::Identifier => {
                     let nombre = token.value.clone();
                     self.avanzar();
                     
+                    // Verificar si es asignación
                     if let Some(t) = self.current {
                         if t.token_type == TokenType::Assign {
                             self.avanzar(); // consumir ":="
-                            let valor = self.parse_expresion()?;
+                            
+                            // Parsear expresión completa hasta cambio de línea o indentación
+                            let valor = self.parse_expresion_linea_completa(start_line)?;
+                            
                             Ok(Instruccion::Asignacion {
                                 variable: nombre,
                                 valor,
@@ -547,7 +687,11 @@ impl<'a> Parser<'a> {
                             })
                         }
                     } else {
-                        Err(CompilerError::new("Instrucción incompleta", 0, 0))
+                        // Solo identificador sin operador (instrucción simple)
+                        Ok(Instruccion::LlamadaFuncion {
+                            nombre,
+                            argumentos: Vec::new(),
+                        })
                     }
                 }
                 TokenType::ElementalInstruction => {
@@ -586,6 +730,160 @@ impl<'a> Parser<'a> {
             }
         } else {
             Err(CompilerError::new("Se esperaba una instrucción", 0, 0))
+        }
+    }
+
+    // Nueva función para parsear expresión completa en una línea
+    fn parse_expresion_linea_completa(&mut self, start_line: usize) -> Result<Expresion, CompilerError> {
+        // Parsear la primera parte de la expresión
+        let mut expr = self.parse_expresion_simple()?;
+        
+        // Continuar parseando mientras estemos en la misma línea
+        while let Some(token) = self.current {
+            // Verificar si seguimos en la misma línea
+            if token.line != start_line {
+                break;
+            }
+            
+            // Verificar si es fin de instrucción
+            if token.token_type == TokenType::Indent || 
+            token.token_type == TokenType::Dedent ||
+            token.token_type == TokenType::Keyword ||
+            (token.token_type == TokenType::ControlSentence && 
+                (token.value == "si" || token.value == "mientras" || token.value == "repetir" || token.value == "sino")) {
+                break;
+            }
+            
+            // Si encontramos un operador, parsear como expresión binaria
+            if self.es_operador_binario(token) {
+                let operador = self.parse_operador_binario()?;
+                let derecha = self.parse_expresion_simple()?;
+                
+                expr = Expresion::Binaria {
+                    izquierda: Box::new(expr),
+                    operador,
+                    derecha: Box::new(derecha),
+                };
+            } else {
+                // Si no es operador, terminamos la expresión
+                break;
+            }
+        }
+        
+        Ok(expr)
+    }
+
+    // Método para parsear expresión simple (sin operadores binarios)
+    fn parse_expresion_simple(&mut self) -> Result<Expresion, CompilerError> {
+        if let Some(token) = self.current {
+            match token.token_type {
+                TokenType::Identifier => {
+                    let nombre = token.value.clone();
+                    self.avanzar();
+                    Ok(Expresion::Identificador(nombre))
+                }
+                TokenType::Num => {
+                    let valor = token.value.parse::<i32>().unwrap_or(0);
+                    self.avanzar();
+                    Ok(Expresion::Numero(valor))
+                }
+                TokenType::BoolValue => {
+                    let valor = token.value == "V" ;
+                    self.avanzar();
+                    Ok(Expresion::Booleano(valor))
+                }
+                TokenType::ElementalInstruction => {
+                    let nombre = token.value.clone();
+                    self.avanzar();
+                    
+                    let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
+                        self.avanzar(); // consumir '('
+                        let args = self.parse_lista_argumentos()?;
+                        self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
+                        args
+                    } else {
+                        Vec::new()
+                    };
+                    
+                    // Convertir llamada a función a expresión
+                    if argumentos.is_empty() {
+                        Ok(Expresion::Identificador(nombre))
+                    } else {
+                        // Para simplificar, tratamos funciones con argumentos como identificadores
+                        // En una implementación completa, necesitarías un nodo FunctionCall en Expresion
+                        Ok(Expresion::Identificador(format!("{}(...)", nombre)))
+                    }
+                }
+                TokenType::OpenedParenthesis => {
+                    self.avanzar(); // consumir '('
+                    let expr = self.parse_expresion_linea_completa(token.line)?;
+                    self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
+                    Ok(expr)
+                }
+                _ => Err(CompilerError::new(
+                    format!("Expresión simple no válida: {:?}", token.token_type),
+                    token.line,
+                    token.column
+                )),
+            }
+        } else {
+            Err(CompilerError::new("Se esperaba una expresión simple", 0, 0))
+        }
+    }
+
+    // Verificar si el token es un operador binario
+    fn es_operador_binario(&self, token: &Token) -> bool {
+        matches!(token.token_type,
+            TokenType::Plus |
+            TokenType::Minus |
+            TokenType::Multiply |
+            TokenType::Divide |
+            TokenType::Less |
+            TokenType::LessEqual |
+            TokenType::Greater |
+            TokenType::GreaterEqual |
+            TokenType::Equals |
+            TokenType::NotEquals |
+            TokenType::And |
+            TokenType::Or
+        )
+    }
+
+    // Parsear operador binario
+    fn parse_operador_binario(&mut self) -> Result<String, CompilerError> {
+        if let Some(token) = self.current {
+            if self.es_operador_binario(token) {
+                let operador = match token.token_type {
+                    TokenType::Plus => "+",
+                    TokenType::Minus => "-",
+                    TokenType::Multiply => "*",
+                    TokenType::Divide => "/",
+                    TokenType::Less => "<",
+                    TokenType::LessEqual => "<=",
+                    TokenType::Greater => ">",
+                    TokenType::GreaterEqual => ">=",
+                    TokenType::Equals => "==",
+                    TokenType::NotEquals => "<>",
+                    TokenType::And => "&",
+                    TokenType::Or => "|",
+                    _ => return Err(CompilerError::new(
+                        "Operador no reconocido",
+                        token.line,
+                        token.column
+                    )),
+                };
+                
+                self.avanzar();
+                Ok(operador.to_string())
+            } else {
+                Err(CompilerError::new(
+                    format!("Se esperaba operador binario, encontrado: {:?}", token.token_type),
+                    token.line,
+                    token.column
+                ))
+            }
+        } else {
+            Err(CompilerError::new("Se esperaba operador binario", 0, 0))
         }
     }
     
@@ -691,36 +989,10 @@ impl<'a> Parser<'a> {
         Ok(Instruccion::Repetir { condicion, cuerpo })
     }
     
+    // Método parse_expresion original modificado para usar la nueva implementación
     fn parse_expresion(&mut self) -> Result<Expresion, CompilerError> {
         if let Some(token) = self.current {
-            match token.token_type {
-                TokenType::Identifier => {
-                    let nombre = token.value.clone();
-                    self.avanzar();
-                    Ok(Expresion::Identificador(nombre))
-                }
-                TokenType::Num => {
-                    let valor = token.value.parse::<i32>().unwrap_or(0);
-                    self.avanzar();
-                    Ok(Expresion::Numero(valor))
-                }
-                TokenType::BoolValue => {
-                    let valor = token.value == "V" || token.value == "true" || token.value == "verdadero";
-                    self.avanzar();
-                    Ok(Expresion::Booleano(valor))
-                }
-                TokenType::OpenedParenthesis => {
-                    self.avanzar(); // consumir '('
-                    let expr = self.parse_expresion()?;
-                    self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
-                    Ok(expr)
-                }
-                _ => Err(CompilerError::new(
-                    format!("Expresión no válida: {:?}", token.token_type),
-                    token.line,
-                    token.column
-                )),
-            }
+            self.parse_expresion_linea_completa(token.line)
         } else {
             Err(CompilerError::new("Se esperaba una expresión", 0, 0))
         }
