@@ -21,7 +21,7 @@ pub struct InicializacionRobot {
     pub pos_y: Expresion,
 }
 
-// Estrutura principal del Ast
+// Estructura principal del Ast
 #[derive(Debug, Clone)]
 pub struct Program {
     pub nombre: String,
@@ -71,6 +71,7 @@ pub struct Robot {
 
 #[derive(Debug, Clone)]
 pub enum Instruccion {
+    Elemental { nombre: String },
     Asignacion { variable: String, valor: Expresion },
     LlamadaFuncion { nombre: String, argumentos: Vec<Expresion> },
     Si { condicion: Expresion, entonces: Vec<Instruccion>, sino: Vec<Instruccion> },
@@ -78,7 +79,7 @@ pub enum Instruccion {
     Repetir { condicion: Expresion, cuerpo: Vec<Instruccion> },
 }
 
-#[derive(Debug, Clone,PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expresion {
     Identificador(String),
     Numero(i32),
@@ -274,7 +275,7 @@ impl<'a> Parser<'a> {
                         self.avanzar();
                         break;
                     } else if token.token_type == TokenType::Indent || 
-                            token.token_type == TokenType::Dedent {
+                              token.token_type == TokenType::Dedent {
                         self.avanzar();
                     } else {
                         if let Ok(instr) = self.parse_instruccion() {
@@ -698,19 +699,26 @@ impl<'a> Parser<'a> {
                     let nombre = token.value.clone();
                     self.avanzar();
                     
-                    let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
-                        self.avanzar(); // consumir '('
-                        let args = self.parse_lista_argumentos()?;
-                        self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
-                        args
+                    // Verificar si es una de las palabras clave especiales
+                    if self.es_instruccion_elemental(&nombre) {
+                        // Instrucción elemental sin argumentos
+                        Ok(Instruccion::Elemental { nombre })
                     } else {
-                        Vec::new()
-                    };
-                    
-                    Ok(Instruccion::LlamadaFuncion {
-                        nombre,
-                        argumentos,
-                    })
+                        // Llamada a función elemental
+                        let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
+                            self.avanzar(); // consumir '('
+                            let args = self.parse_lista_argumentos()?;
+                            self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
+                            args
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        Ok(Instruccion::LlamadaFuncion {
+                            nombre,
+                            argumentos,
+                        })
+                    }
                 }
                 TokenType::ControlSentence => match token.value.as_str() {
                     "si" => self.parse_si(),
@@ -733,6 +741,16 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Verificar si es una instrucción elemental (sin argumentos)
+    fn es_instruccion_elemental(&self, nombre: &str) -> bool {
+        matches!(nombre,
+            "HayFlorEnLaBolsa" |
+            "HayPapelEnLaBolsa" |
+            "HayFlorEnLaEsquina" |
+            "HayPapelEnLaEsquina"
+        )
+    }
+
     // Nueva función para parsear expresión completa en una línea
     fn parse_expresion_linea_completa(&mut self, start_line: usize) -> Result<Expresion, CompilerError> {
         // Parsear la primera parte de la expresión
@@ -747,9 +765,9 @@ impl<'a> Parser<'a> {
             
             // Verificar si es fin de instrucción
             if token.token_type == TokenType::Indent || 
-            token.token_type == TokenType::Dedent ||
-            token.token_type == TokenType::Keyword ||
-            (token.token_type == TokenType::ControlSentence && 
+               token.token_type == TokenType::Dedent ||
+               token.token_type == TokenType::Keyword ||
+               (token.token_type == TokenType::ControlSentence && 
                 (token.value == "si" || token.value == "mientras" || token.value == "repetir" || token.value == "sino")) {
                 break;
             }
@@ -788,7 +806,7 @@ impl<'a> Parser<'a> {
                     Ok(Expresion::Numero(valor))
                 }
                 TokenType::BoolValue => {
-                    let valor = token.value == "V" ;
+                    let valor = token.value == "V";
                     self.avanzar();
                     Ok(Expresion::Booleano(valor))
                 }
@@ -796,22 +814,28 @@ impl<'a> Parser<'a> {
                     let nombre = token.value.clone();
                     self.avanzar();
                     
-                    let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
-                        self.avanzar(); // consumir '('
-                        let args = self.parse_lista_argumentos()?;
-                        self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
-                        args
+                    // Verificar si es una instrucción elemental
+                    if self.es_instruccion_elemental(&nombre) {
+                        // Las instrucciones elementales sin argumentos se convierten en expresiones booleanas
+                        Ok(Expresion::Booleano(true)) // Valor placeholder, podría necesitar lógica específica
                     } else {
-                        Vec::new()
-                    };
-                    
-                    // Convertir llamada a función a expresión
-                    if argumentos.is_empty() {
-                        Ok(Expresion::Identificador(nombre))
-                    } else {
-                        // Para simplificar, tratamos funciones con argumentos como identificadores
-                        // En una implementación completa, necesitarías un nodo FunctionCall en Expresion
-                        Ok(Expresion::Identificador(format!("{}(...)", nombre)))
+                        // Llamada a función elemental
+                        let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
+                            self.avanzar(); // consumir '('
+                            let args = self.parse_lista_argumentos()?;
+                            self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
+                            args
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        // Convertir llamada a función a expresión
+                        if argumentos.is_empty() {
+                            Ok(Expresion::Identificador(nombre))
+                        } else {
+                            // Para simplificar, tratamos funciones con argumentos como identificadores
+                            Ok(Expresion::Identificador(format!("{}(...)", nombre)))
+                        }
                     }
                 }
                 TokenType::OpenedParenthesis => {

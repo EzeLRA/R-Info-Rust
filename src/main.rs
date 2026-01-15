@@ -1,7 +1,7 @@
 use crate::lib::lexer::scanner::Lexer;
 use crate::lib::lexer::token::Keywords;
 use crate::lib::parser::processor::Parser;
-//use crate::lib::semanticizer::analizer::SemanticAnalyzer;
+use crate::lib::semanticizer::analizer::SemanticAnalyzer;
 use std::fs;
 
 mod lib;
@@ -25,6 +25,21 @@ fn main() {
             match parser.parse() {
                 Ok(ast) => {
                     println!("{:?}", ast);
+                    println!("\n");
+
+                    //Semantic Analyzer
+                    let mut analyzer = SemanticAnalyzer::new();
+
+                    match analyzer.analizar(&ast) {
+                        Ok(_) => {
+                            analyzer.mostrar_resultados();
+                            
+                        }
+                        Err(errores) => {
+                            //analyzer.mostrar_resultados();
+                            println!("{:?}", errores);
+                        }
+                    }
                 }
                 Err(e) => {
                     println!("Error al generar el AST: {}", e);
