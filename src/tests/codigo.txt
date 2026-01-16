@@ -22,7 +22,7 @@ procesos
         sino
             mover
             derecha
-        ok := HayFloyEnLaBolsa
+        ok := HayFlorEnLaBolsa
     fin
 areas
     ciudad: AreaC (1,1,100,100)

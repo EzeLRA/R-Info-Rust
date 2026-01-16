@@ -314,6 +314,11 @@ impl SemanticAnalyzer {
             Expresion::Identificador(nombre) => {
                 variables_declaradas.get(nombre).cloned()
             }
+            Expresion::Elemental { nombre } => {
+                // Aquí puedes manejar expresiones elementales si es necesario
+                None
+            }
+
             Expresion::Numero(_) => Some("numero".to_string()),
             Expresion::Booleano(_) => Some("booleano".to_string()),
             Expresion::Binaria { izquierda, operador, derecha } => {

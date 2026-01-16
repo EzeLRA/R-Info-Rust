@@ -81,6 +81,7 @@ pub enum Instruccion {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expresion {
+    Elemental { nombre: String },
     Identificador(String),
     Numero(i32),
     Booleano(bool),
@@ -795,29 +796,13 @@ impl<'a> Parser<'a> {
     fn parse_expresion_simple(&mut self) -> Result<Expresion, CompilerError> {
         if let Some(token) = self.current {
             match token.token_type {
-                TokenType::Identifier => {
-                    let nombre = token.value.clone();
-                    self.avanzar();
-                    Ok(Expresion::Identificador(nombre))
-                }
-                TokenType::Num => {
-                    let valor = token.value.parse::<i32>().unwrap_or(0);
-                    self.avanzar();
-                    Ok(Expresion::Numero(valor))
-                }
-                TokenType::BoolValue => {
-                    let valor = token.value == "V";
-                    self.avanzar();
-                    Ok(Expresion::Booleano(valor))
-                }
                 TokenType::ElementalInstruction => {
                     let nombre = token.value.clone();
                     self.avanzar();
                     
                     // Verificar si es una instrucción elemental
                     if self.es_instruccion_elemental(&nombre) {
-                        // Las instrucciones elementales sin argumentos se convierten en expresiones booleanas
-                        Ok(Expresion::Booleano(true)) // Valor placeholder, podría necesitar lógica específica
+                        Ok(Expresion::Elemental { nombre: nombre.clone() })
                     } else {
                         // Llamada a función elemental
                         let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
@@ -837,13 +822,28 @@ impl<'a> Parser<'a> {
                             Ok(Expresion::Identificador(format!("{}(...)", nombre)))
                         }
                     }
-                }
+                },
+                TokenType::Identifier => {
+                    let nombre = token.value.clone();
+                    self.avanzar();
+                    Ok(Expresion::Identificador(nombre))
+                },
+                TokenType::Num => {
+                    let valor = token.value.parse::<i32>().unwrap_or(0);
+                    self.avanzar();
+                    Ok(Expresion::Numero(valor))
+                },
+                TokenType::BoolValue => {
+                    let valor = token.value == "V";
+                    self.avanzar();
+                    Ok(Expresion::Booleano(valor))
+                },
                 TokenType::OpenedParenthesis => {
                     self.avanzar(); // consumir '('
                     let expr = self.parse_expresion_linea_completa(token.line)?;
                     self.consumir(TokenType::ClosedParenthesis, "Esperado ')'")?;
                     Ok(expr)
-                }
+                },
                 _ => Err(CompilerError::new(
                     format!("Expresión simple no válida: {:?}", token.token_type),
                     token.line,
