@@ -332,6 +332,7 @@ impl<'a> Parser<'a> {
             }
         }
         
+        /* 
         if !instrucciones_principales.is_empty() {
             robots_definidos.push(Robot {
                 nombre: "main".to_string(),
@@ -339,6 +340,7 @@ impl<'a> Parser<'a> {
                 instrucciones: instrucciones_principales,
             });
         }
+        */
         
         Ok(Program {
             nombre,
@@ -576,7 +578,7 @@ impl<'a> Parser<'a> {
         let mut definidos = Vec::new();
         
         while let Some(token) = self.current {
-            if token.token_type == TokenType::Keyword && token.value == "robot" {
+            if ((token.token_type == TokenType::Keyword) && (token.value == "robot") && (token.value != "variables")) {
                 self.avanzar(); // consumir "robot"
                 
                 // Nombre del robot

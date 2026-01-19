@@ -113,41 +113,6 @@ impl SemanticAnalyzer {
                 nombres_variables.insert(var.nombre.clone());
             }
             
-            // Analizar instrucciones del robot
-            self.analizar_instrucciones_robot(&robot.instrucciones, &robot.nombre, procesos_validos);
-        }
-    }
-    
-    fn analizar_instrucciones_robot(&mut self, instrucciones: &[Instruccion], nombre_robot: &str, 
-                                   procesos_validos: &HashMap<String, (Vec<(String, String)>, String)>) {
-        for instruccion in instrucciones {
-            match instruccion {
-                Instruccion::LlamadaFuncion { nombre, argumentos } => {
-                    if nombre == "recorrerAvenida" {
-                        // Verificar que el proceso existe
-                        if !procesos_validos.contains_key(nombre) {
-                            self.errores.push(CompilerError::new(
-                                format!("Proceso '{}' no definido (usado en robot '{}')", 
-                                        nombre, nombre_robot),
-                                0, 0
-                            ));
-                        } else {
-                            // Verificar número de argumentos
-                            let (parametros_esperados, _) = &procesos_validos[nombre];
-                            if argumentos.len() != parametros_esperados.len() {
-                                self.errores.push(CompilerError::new(
-                                    format!("Proceso '{}' espera {} argumentos, pero se pasaron {} (en robot '{}')",
-                                            nombre, parametros_esperados.len(), argumentos.len(), nombre_robot),
-                                    0, 0
-                                ));
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    // Otras instrucciones se verifican en otros métodos
-                }
-            }
         }
     }
     
