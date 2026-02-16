@@ -32,9 +32,11 @@ robots
         num : numero
         ok : booleano
     comenzar
-        num := 1
+        num := -1
+        num := (-1)
         ok := V
         recorrerAvenida(num)
+        num := (-1) * (2+3) + 5
     fin
 variables
     R_info: robot1

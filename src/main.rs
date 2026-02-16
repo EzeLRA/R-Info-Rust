@@ -26,6 +26,8 @@ fn main() {
                 Ok(ast) => {
                     println!("{:?}", ast);
                     println!("\n");
+                    
+                    println!("{:?}",ast.robots_definidos);
 
                     //Semantic Analyzer
                     let mut analyzer = SemanticAnalyzer::new();
@@ -40,6 +42,7 @@ fn main() {
                             println!("{:?}", errores);
                         }
                     }
+                    
                 }
                 Err(e) => {
                     println!("Error al generar el AST: {}", e);
