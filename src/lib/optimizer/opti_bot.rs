@@ -59,20 +59,39 @@ impl RobotPrototype {
         self.instructions = robot_def.instrucciones.clone();
     }
 
-    pub fn optimize_instructions(&mut self) {
+    pub fn optimize_instructions(&mut self, instructions: &mut Vec<Instruccion>) {
         let mut math_bot = BotSimplifier::new();
 
-        // Simplifyies expressions in the instructions
-        self.instructions.iter_mut().for_each(|instr| {
+        instructions.iter_mut().for_each(|instr| {
             match instr {
                 Instruccion::Asignacion { variable, expresion_texto } => {
                     math_bot.process_ecuation(expresion_texto);
                     *expresion_texto = math_bot.get_simplified_expression().unwrap();
                 },
+                Instruccion::Si { condicion_texto, entonces, sino } => {
+                    math_bot.process_ecuation(condicion_texto);
+                    *condicion_texto = math_bot.get_simplified_expression().unwrap();
+                    self.optimize_instructions(entonces);
+                    if !sino.is_empty() {
+                        self.optimize_instructions(sino);
+                    }
+                },
+                Instruccion::Mientras { condicion_texto, cuerpo } => {
+                    math_bot.process_ecuation(condicion_texto);
+                    *condicion_texto = math_bot.get_simplified_expression().unwrap();
+                    self.optimize_instructions(cuerpo);
+                },
+                Instruccion::Repetir { condicion_texto, cuerpo } => {
+                    math_bot.process_ecuation(condicion_texto);
+                    *condicion_texto = math_bot.get_simplified_expression().unwrap();
+                    self.optimize_instructions(cuerpo);
+                },
                 _ => {}
             }
         });
+        
     }
+
 }
 
 pub struct Info {
@@ -137,7 +156,11 @@ impl Optimizer {
         }
 
         // Aquí iría la lógica adicional de optimización
-       
+       for robot in &mut self.info.robots {
+            let mut instructions = robot.instructions.clone();
+            robot.optimize_instructions(&mut instructions);
+            robot.instructions = instructions;
+        }
     }
 
     // Método para obtener información del estado actual
