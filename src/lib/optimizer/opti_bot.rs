@@ -1,7 +1,6 @@
-use crate::lib::parser::processor::{
-    AsignacionArea, Instruccion, Proceso, Program, Variable, 
-    Robot, Expresion, InicializacionRobot
-};
+use crate::lib::{optimizer::bot_simplyfier::BotSimplifier, parser::processor::{
+    AsignacionArea, Expresion, InicializacionRobot, Instruccion, Proceso, Program, Robot, Variable
+}};
 
 #[derive(Debug, Clone)]
 pub struct RobotPrototype {
@@ -58,6 +57,21 @@ impl RobotPrototype {
     pub fn load_robot_definition(&mut self, robot_def: &Robot) {
         self.my_variables = robot_def.variables.clone();
         self.instructions = robot_def.instrucciones.clone();
+    }
+
+    pub fn optimize_instructions(&mut self) {
+        let mut math_bot = BotSimplifier::new();
+
+        // Simplifyies expressions in the instructions
+        self.instructions.iter_mut().for_each(|instr| {
+            match instr {
+                Instruccion::Asignacion { variable, expresion_texto } => {
+                    math_bot.process_ecuation(expresion_texto);
+                    *expresion_texto = math_bot.get_simplified_expression().unwrap();
+                },
+                _ => {}
+            }
+        });
     }
 }
 
@@ -120,26 +134,6 @@ impl Optimizer {
             robot_prototype.capture_initialization(&program.inicializaciones);
             
             self.info.robots.push(robot_prototype);
-        }
-
-        // Validaciones y advertencias
-        for robot_instanciado in &program.robots_instanciados {
-            let robot_proto = self.info.robots.iter()
-                .find(|r| r.type_name == robot_instanciado.tipo);
-            
-            if let Some(robot) = robot_proto {
-                if !robot.inicializado {
-                    println!("Advertencia: Robot instanciado '{}' de tipo '{}' no tiene inicialización",
-                        robot_instanciado.nombre, robot_instanciado.tipo);
-                }
-                if robot.area_asignada.is_none() {
-                    println!("Advertencia: Robot instanciado '{}' de tipo '{}' no tiene área asignada",
-                        robot_instanciado.nombre, robot_instanciado.tipo);
-                }
-            } else {
-                println!("Advertencia: Robot instanciado '{}' de tipo '{}' no tiene definición",
-                    robot_instanciado.nombre, robot_instanciado.tipo);
-            }
         }
 
         // Aquí iría la lógica adicional de optimización
