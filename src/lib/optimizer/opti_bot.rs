@@ -1,56 +1,20 @@
 use crate::lib::{optimizer::bot_simplyfier::BotSimplifier, parser::processor::{
-    AsignacionArea, Expresion, InicializacionRobot, Instruccion, Proceso, Program, Robot, Variable
+    Area, AsignacionArea, Expresion, InicializacionRobot, Instruccion, Proceso, Program, Robot, RobotInstanciado, Variable
 }};
 
 #[derive(Debug, Clone)]
 pub struct RobotPrototype {
     pub type_name: String,
-    pub position: (i32, i32),
     pub my_variables: Vec<Variable>,
     pub instructions: Vec<Instruccion>,
-    pub area_asignada: Option<Expresion>,
-    pub inicializado: bool,
 }
 
 impl RobotPrototype {
     pub fn new(type_name: String) -> Self {
         RobotPrototype {
             type_name,
-            position: (0, 0),
             my_variables: Vec::new(),
             instructions: Vec::new(),
-            area_asignada: None,
-            inicializado: false,
-        }
-    }
-
-    pub fn capture_init_position(&mut self, list: &Vec<AsignacionArea>) {
-        if let Some(asignacion) = list.iter().find(|asignacion| {
-            if let Expresion::Identificador(robot_nombre) = &asignacion.robot {
-                robot_nombre == &self.type_name
-            } else {
-                false
-            }
-        }) {
-            self.area_asignada = Some(asignacion.area.clone());
-        }
-    }
-
-    pub fn capture_initialization(&mut self, list: &Vec<InicializacionRobot>) {
-        if let Some(inicializacion) = list.iter().find(|init| {
-            if let Expresion::Identificador(robot_nombre) = &init.robot {
-                robot_nombre == &self.type_name
-            } else {
-                false
-            }
-        }) {
-            // Capturar las coordenadas de inicialización si son números
-            if let Expresion::Numero(x) = inicializacion.pos_x {
-                if let Expresion::Numero(y) = inicializacion.pos_y {
-                    self.position = (x, y);
-                }
-            }
-            self.inicializado = true;
         }
     }
 
@@ -94,14 +58,15 @@ impl RobotPrototype {
 
 }
 
+#[derive(Debug, Clone)]
 pub struct Info {
     pub name_program: String,
     pub procedures: Vec<Proceso>,
     pub robots: Vec<RobotPrototype>,
     pub areas_robot: Vec<AsignacionArea>,
-    pub areas_definidas: Vec<crate::lib::parser::processor::Area>,
+    pub areas_definidas: Vec<Area>,
     pub inicializaciones: Vec<InicializacionRobot>,
-    pub robots_instanciados: Vec<crate::lib::parser::processor::RobotInstanciado>,
+    pub robots_instanciados: Vec<RobotInstanciado>,
 }
 
 impl Info {
@@ -118,18 +83,17 @@ impl Info {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Optimizer {
     info: Info,
 }
 
 impl Optimizer {
-    pub fn new(info: Info) -> Self {
-        Optimizer { info }
+    pub fn new() -> Self {
+        Optimizer { info: Info::new() }
     }
 
     pub fn process(&mut self, program: &Program) {
-        // Limpiar información previa
-        self.info = Info::new();
         
         // Configurar datos básicos para el optimizador
         self.info.name_program = program.nombre.clone();
@@ -145,12 +109,6 @@ impl Optimizer {
             
             // Cargar la definición del robot
             robot_prototype.load_robot_definition(robot_def);
-            
-            // Capturar asignación de área si existe
-            robot_prototype.capture_init_position(&program.asignaciones_areas);
-            
-            // Capturar inicialización si existe
-            robot_prototype.capture_initialization(&program.inicializaciones);
             
             self.info.robots.push(robot_prototype);
         }
@@ -172,11 +130,15 @@ impl Optimizer {
         &self.info.robots
     }
 
-    pub fn get_areas_definidas(&self) -> &Vec<crate::lib::parser::processor::Area> {
+    pub fn get_areas_definidas(&self) -> &Vec<Area> {
         &self.info.areas_definidas
     }
 
     pub fn get_inicializaciones(&self) -> &Vec<InicializacionRobot> {
         &self.info.inicializaciones
+    }
+
+    pub fn get_info(&self) -> &Info {
+        &self.info
     }
 }

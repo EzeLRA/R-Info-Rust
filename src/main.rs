@@ -1,5 +1,6 @@
 use crate::lib::lexer::scanner::Lexer;
 use crate::lib::lexer::token::Keywords;
+use crate::lib::optimizer::opti_bot::{Info, Optimizer};
 use crate::lib::parser::processor::Parser;
 use crate::lib::semanticizer::analizer::SemanticAnalyzer;
 use std::fs;
@@ -24,10 +25,10 @@ fn main() {
 
             match parser.parse() {
                 Ok(ast) => {
-                    println!("{:?}", ast);
-                    println!("\n");
+                    //println!("{:?}", ast);
+                    //println!("\n");
                     
-                    println!("{:?}",ast.robots_definidos);
+                    //println!("{:?}",ast.robots_definidos);
 
                     //Semantic Analyzer
                     let mut analyzer = SemanticAnalyzer::new();
@@ -43,6 +44,12 @@ fn main() {
                         }
                     }
                     
+                    //Optimizer
+                    let mut optimizer = Optimizer::new();
+                    optimizer.process(&ast);
+                    println!("{:?}", optimizer.get_info());
+                    
+
                 }
                 Err(e) => {
                     println!("Error al generar el AST: {}", e);
