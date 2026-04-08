@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use crate::lib::compilerError::CompilerError;
-use super::super::parser::processor::{Program, Proceso, Robot, Instruccion, Expresion};
+use crate::lib::parser::ast::{Program, Proceso, Robot, Instruccion, Expresion};
 
 pub struct SemanticAnalyzer {
     errores: Vec<CompilerError>,
@@ -445,5 +445,5 @@ impl SemanticAnalyzer {
 #[derive(Debug, Clone)]
 struct ProcesoInfo {
     parametros: Vec<(String, String)>,
-    variables: Vec<super::super::parser::processor::Variable>,
+    variables: Vec<super::super::parser::ast::Variable>,
 }

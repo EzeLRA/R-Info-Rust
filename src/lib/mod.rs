@@ -4,3 +4,4 @@ pub mod semanticizer;
 pub mod optimizer;
 pub mod executable;
 pub mod compilerError;
+pub mod machine;

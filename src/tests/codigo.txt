@@ -9,7 +9,9 @@ procesos
         paso : numero
         ok : booleano
     comenzar
+        error3
         ok := F
+        error2
         paso := 0
         Pos(numAv, 1)
         repetir paso

@@ -1,4 +1,4 @@
-use crate::lib::{optimizer::bot_simplyfier::BotSimplifier, parser::processor::{
+use crate::lib::{optimizer::bot_simplyfier::BotSimplifier, parser::ast::{
     Area, AsignacionArea, Expresion, InicializacionRobot, Instruccion, Proceso, Program, Robot, RobotInstanciado, Variable
 }};
 
