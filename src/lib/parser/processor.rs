@@ -36,16 +36,25 @@ impl<'a> Parser<'a> {
         }
     }
     
-    fn consumir(&mut self, tipo: TokenType, mensaje: &str) -> Result<(), CompilerError> {
-        if self.coincidir(tipo) {
-            self.avanzar();
-            Ok(())
+    fn obtener_ubicacion_actual(&self) -> (usize, usize) {
+        if let Some(token) = self.current {
+            (token.line, token.column)
         } else {
+            (0, 0)
+        }
+    }
+    
+    fn consumir(&mut self, tipo: TokenType, mensaje: &str) -> Result<&'a Token, CompilerError> {
+        if self.coincidir(tipo) {
             let token = self.current.unwrap();
+            self.avanzar();
+            Ok(token)
+        } else {
+            let (line, column) = self.obtener_ubicacion_actual();
             Err(CompilerError::new(
                 format!("{}: esperado {:?}", mensaje, tipo),
-                token.line,
-                token.column
+                line,
+                column
             ))
         }
     }
@@ -55,11 +64,16 @@ impl<'a> Parser<'a> {
     }
     
     fn parse_programa(&mut self) -> Result<Program, CompilerError> {
+        let (start_line, start_column) = self.obtener_ubicacion_actual();
+        
         self.consumir(TokenType::Keyword, "Esperado 'programa'")?;
-        let nombre = if let Some(token) = self.current {
+        
+        let (nombre, nombre_line, nombre_column) = if let Some(token) = self.current {
             let nombre = token.value.clone();
+            let line = token.line;
+            let column = token.column;
             self.avanzar();
-            nombre
+            (nombre, line, column)
         } else {
             return Err(CompilerError::new("Esperado nombre del programa", 0, 0));
         };
@@ -102,6 +116,8 @@ impl<'a> Parser<'a> {
                             
                             if t.token_type == TokenType::Identifier {
                                 let nombre_instancia = t.value.clone();
+                                let inst_line = t.line;
+                                let inst_column = t.column;
                                 self.avanzar();
                                 
                                 if let Some(next_token) = self.current {
@@ -111,19 +127,22 @@ impl<'a> Parser<'a> {
                                         if let Some(tipo_token) = self.current {
                                             if tipo_token.token_type == TokenType::Identifier {
                                                 let tipo_robot = tipo_token.value.clone();
+                                                let tipo_line = tipo_token.line;
+                                                let tipo_column = tipo_token.column;
                                                 self.avanzar();
                                                 
                                                 if !robots_declarados.contains(&tipo_robot) {
                                                     return Err(CompilerError::new(
                                                         format!("Tipo de robot no definido: {}", tipo_robot),
-                                                        tipo_token.line,
-                                                        tipo_token.column
+                                                        tipo_line,
+                                                        tipo_column
                                                     ));
                                                 }
                                                 
                                                 robots_instanciados.push(RobotInstanciado {
                                                     nombre: nombre_instancia,
                                                     tipo: tipo_robot,
+                                                    ubicacion: (inst_line, inst_column),
                                                 });
                                             } else {
                                                 return Err(CompilerError::new(
@@ -160,7 +179,7 @@ impl<'a> Parser<'a> {
                     }
                     "comenzar" => break,
                     _ => self.avanzar(),
-                }
+                },
                 TokenType::Indent | TokenType::Dedent => {
                     self.avanzar();
                 }
@@ -185,17 +204,19 @@ impl<'a> Parser<'a> {
                     } else {
                         if let Ok(instr) = self.parse_instruccion() {
                             match &instr {
-                                Instruccion::LlamadaFuncion { nombre, argumentos } => {
+                                Instruccion::LlamadaFuncion { nombre, argumentos, .. } => {
                                     if nombre == "AsignarArea" && argumentos.len() == 2 {
                                         asignaciones_areas.push(AsignacionArea {
                                             robot: argumentos[0].clone(),
                                             area: argumentos[1].clone(),
+                                            ubicacion: instr.obtener_ubicacion(),
                                         });
                                     } else if nombre == "Iniciar" && argumentos.len() == 3 {
                                         inicializaciones.push(InicializacionRobot {
                                             robot: argumentos[0].clone(),
                                             pos_x: argumentos[1].clone(),
                                             pos_y: argumentos[2].clone(),
+                                            ubicacion: instr.obtener_ubicacion(),
                                         });
                                     }
                                     instrucciones_principales.push(instr);
@@ -212,21 +233,26 @@ impl<'a> Parser<'a> {
             }
         }
         
+        // Advertencias para robots sin asignación/inicialización
         for robot in &robots_instanciados {
-            let nombre_robot_exp = Expresion::Identificador(robot.nombre.clone());
+            let nombre_robot_exp = Expresion::Identificador(robot.nombre.clone(), robot.ubicacion);
             
             let tiene_asignacion_area = asignaciones_areas.iter()
                 .any(|asig| asig.robot == nombre_robot_exp);
             
             if !tiene_asignacion_area {
-                println!("Advertencia: Robot '{}' no tiene asignación de área", robot.nombre);
+                let (line, column) = robot.ubicacion;
+                println!("Advertencia en línea {}, columna {}: Robot '{}' no tiene asignación de área", 
+                         line, column, robot.nombre);
             }
             
             let tiene_inicializacion = inicializaciones.iter()
                 .any(|init| init.robot == nombre_robot_exp);
             
             if !tiene_inicializacion {
-                println!("Advertencia: Robot '{}' no tiene inicialización", robot.nombre);
+                let (line, column) = robot.ubicacion;
+                println!("Advertencia en línea {}, columna {}: Robot '{}' no tiene inicialización", 
+                         line, column, robot.nombre);
             }
         }
         
@@ -239,6 +265,7 @@ impl<'a> Parser<'a> {
             robots_instanciados,
             asignaciones_areas,
             inicializaciones,
+            ubicacion: (start_line, start_column),
         })
     }
     
@@ -259,12 +286,15 @@ impl<'a> Parser<'a> {
     }
     
     fn parse_proceso(&mut self) -> Result<Proceso, CompilerError> {
-        self.consumir(TokenType::Keyword, "Esperado 'proceso'")?;
+        let token_proceso = self.consumir(TokenType::Keyword, "Esperado 'proceso'")?;
+        let (start_line, start_column) = (token_proceso.line, token_proceso.column);
         
-        let nombre = if let Some(token) = self.current {
+        let (nombre, nombre_line, nombre_column) = if let Some(token) = self.current {
             let nombre = token.value.clone();
+            let line = token.line;
+            let column = token.column;
             self.avanzar();
-            nombre
+            (nombre, line, column)
         } else {
             return Err(CompilerError::new("Esperado nombre del proceso", 0, 0));
         };
@@ -279,27 +309,34 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 
-                let tipo_param = if token.token_type == TokenType::ParameterType {
+                let (tipo_param, tipo_line, tipo_column) = if token.token_type == TokenType::ParameterType {
                     let tipo = token.value.clone();
+                    let line = token.line;
+                    let column = token.column;
                     self.avanzar();
-                    tipo
+                    (tipo, line, column)
                 } else {
-                    "E".to_string()
+                    ("E".to_string(), token.line, token.column)
                 };
                 
-                let nombre_param = if let Some(t) = self.current {
+                let (nombre_param, nombre_line, nombre_column) = if let Some(t) = self.current {
                     let nombre = t.value.clone();
+                    let line = t.line;
+                    let column = t.column;
                     self.avanzar();
-                    nombre
+                    (nombre, line, column)
                 } else {
                     return Err(CompilerError::new("Esperado nombre del parámetro", 0, 0));
                 };
                 
                 self.consumir(TokenType::Declaration, "Esperado ':'")?;
-                let tipo_dato = if let Some(t) = self.current {
+                
+                let (tipo_dato, tipo_dato_line, tipo_dato_column) = if let Some(t) = self.current {
                     let tipo = t.value.clone();
+                    let line = t.line;
+                    let column = t.column;
                     self.avanzar();
-                    tipo
+                    (tipo, line, column)
                 } else {
                     return Err(CompilerError::new("Esperado tipo de dato", 0, 0));
                 };
@@ -308,6 +345,7 @@ impl<'a> Parser<'a> {
                     tipo: tipo_param,
                     nombre: nombre_param,
                     tipo_dato,
+                    ubicacion: (nombre_line, nombre_column),
                 });
                 
                 if let Some(t) = self.current {
@@ -366,14 +404,17 @@ impl<'a> Parser<'a> {
             parametros,
             variables,
             instrucciones,
+            ubicacion: (start_line, start_column),
         })
     }
     
     fn parse_variable(&mut self) -> Result<Variable, CompilerError> {
-        let nombre = if let Some(token) = self.current {
+        let (nombre, line, column) = if let Some(token) = self.current {
             let nombre = token.value.clone();
+            let line = token.line;
+            let column = token.column;
             self.avanzar();
-            nombre
+            (nombre, line, column)
         } else {
             return Err(CompilerError::new("Esperado nombre de variable", 0, 0));
         };
@@ -388,7 +429,11 @@ impl<'a> Parser<'a> {
             return Err(CompilerError::new("Esperado tipo de dato", 0, 0));
         };
         
-        Ok(Variable { nombre, tipo_dato })
+        Ok(Variable {
+            nombre,
+            tipo_dato,
+            ubicacion: (line, column),
+        })
     }
     
     fn parse_areas(&mut self) -> Result<Vec<Area>, CompilerError> {
@@ -397,6 +442,8 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.current {
             if token.token_type == TokenType::Identifier {
                 let nombre = token.value.clone();
+                let area_line = token.line;
+                let area_column = token.column;
                 self.avanzar();
                 
                 self.consumir(TokenType::Declaration, "Esperado ':'")?;
@@ -439,6 +486,7 @@ impl<'a> Parser<'a> {
                         nombre,
                         tipo,
                         coordenadas: (nums[0], nums[1], nums[2], nums[3]),
+                        ubicacion: (area_line, area_column),
                     });
                 }
             } else if token.token_type == TokenType::Indent || 
@@ -458,6 +506,8 @@ impl<'a> Parser<'a> {
         
         while let Some(token) = self.current {
             if token.token_type == TokenType::Keyword && token.value == "robot" {
+                let robot_line = token.line;
+                let robot_column = token.column;
                 self.avanzar();
                 
                 let nombre = if let Some(t) = self.current {
@@ -517,6 +567,7 @@ impl<'a> Parser<'a> {
                     nombre,
                     variables,
                     instrucciones,
+                    ubicacion: (robot_line, robot_column),
                 });
             } else if token.token_type == TokenType::Indent || 
                       token.token_type == TokenType::Dedent {
@@ -532,6 +583,7 @@ impl<'a> Parser<'a> {
     fn parse_instruccion(&mut self) -> Result<Instruccion, CompilerError> {
         if let Some(token) = self.current {
             let start_line = token.line;
+            let start_column = token.column;
             
             match token.token_type {
                 TokenType::Identifier => {
@@ -547,6 +599,7 @@ impl<'a> Parser<'a> {
                             Ok(Instruccion::Asignacion {
                                 variable: nombre,
                                 expresion_texto,
+                                ubicacion: (start_line, start_column),
                             })
                         } else {
                             let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
@@ -561,12 +614,14 @@ impl<'a> Parser<'a> {
                             Ok(Instruccion::LlamadaFuncion {
                                 nombre,
                                 argumentos,
+                                ubicacion: (start_line, start_column),
                             })
                         }
                     } else {
                         Ok(Instruccion::LlamadaFuncion {
                             nombre,
                             argumentos: Vec::new(),
+                            ubicacion: (start_line, start_column),
                         })
                     }
                 }
@@ -575,7 +630,10 @@ impl<'a> Parser<'a> {
                     self.avanzar();
                     
                     if self.es_instruccion_elemental(&nombre) {
-                        Ok(Instruccion::Elemental { nombre })
+                        Ok(Instruccion::Elemental {
+                            nombre,
+                            ubicacion: (start_line, start_column),
+                        })
                     } else {
                         let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
                             self.avanzar();
@@ -589,19 +647,20 @@ impl<'a> Parser<'a> {
                         Ok(Instruccion::LlamadaFuncion {
                             nombre,
                             argumentos,
+                            ubicacion: (start_line, start_column),
                         })
                     }
                 }
                 TokenType::ControlSentence => match token.value.as_str() {
-                    "si" => self.parse_si(),
-                    "mientras" => self.parse_mientras(),
-                    "repetir" => self.parse_repetir(),
+                    "si" => self.parse_si(start_line, start_column),
+                    "mientras" => self.parse_mientras(start_line, start_column),
+                    "repetir" => self.parse_repetir(start_line, start_column),
                     _ => Err(CompilerError::new(
                         format!("Instrucción de control desconocida: {}", token.value),
                         token.line,
                         token.column
                     )),
-                }
+                },
                 _ => Err(CompilerError::new(
                     format!("Instrucción no reconocida: {:?}", token.token_type),
                     token.line,
@@ -704,7 +763,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn parse_si(&mut self) -> Result<Instruccion, CompilerError> {
+    fn parse_si(&mut self, start_line: usize, start_column: usize) -> Result<Instruccion, CompilerError> {
         self.avanzar();
         
         let condicion_texto = self.capturar_condicion_texto(self.current.map_or(0, |t| t.line))?;
@@ -748,10 +807,11 @@ impl<'a> Parser<'a> {
             condicion_texto,
             entonces,
             sino,
+            ubicacion: (start_line, start_column),
         })
     }
     
-    fn parse_mientras(&mut self) -> Result<Instruccion, CompilerError> {
+    fn parse_mientras(&mut self, start_line: usize, start_column: usize) -> Result<Instruccion, CompilerError> {
         self.avanzar();
         
         let condicion_texto = self.capturar_condicion_texto(self.current.map_or(0, |t| t.line))?;
@@ -772,10 +832,14 @@ impl<'a> Parser<'a> {
             }
         }
         
-        Ok(Instruccion::Mientras { condicion_texto, cuerpo })
+        Ok(Instruccion::Mientras {
+            condicion_texto,
+            cuerpo,
+            ubicacion: (start_line, start_column),
+        })
     }
     
-    fn parse_repetir(&mut self) -> Result<Instruccion, CompilerError> {
+    fn parse_repetir(&mut self, start_line: usize, start_column: usize) -> Result<Instruccion, CompilerError> {
         self.avanzar();
         
         let condicion_texto = self.capturar_condicion_texto(self.current.map_or(0, |t| t.line))?;
@@ -796,19 +860,28 @@ impl<'a> Parser<'a> {
             }
         }
         
-        Ok(Instruccion::Repetir { condicion_texto, cuerpo })
+        Ok(Instruccion::Repetir {
+            condicion_texto,
+            cuerpo,
+            ubicacion: (start_line, start_column),
+        })
     }
 
-    // Método simplificado para parsear expresiones simples (para argumentos de funciones)
     fn parse_expresion_simple(&mut self) -> Result<Expresion, CompilerError> {
         if let Some(token) = self.current {
+            let line = token.line;
+            let column = token.column;
+            
             match token.token_type {
                 TokenType::ElementalInstruction => {
                     let nombre = token.value.clone();
                     self.avanzar();
                     
                     if self.es_instruccion_elemental(&nombre) {
-                        Ok(Expresion::Elemental { nombre: nombre.clone() })
+                        Ok(Expresion::Elemental {
+                            nombre: nombre.clone(),
+                            ubicacion: (line, column),
+                        })
                     } else {
                         let argumentos = if self.coincidir(TokenType::OpenedParenthesis) {
                             self.avanzar();
@@ -820,30 +893,29 @@ impl<'a> Parser<'a> {
                         };
                         
                         if argumentos.is_empty() {
-                            Ok(Expresion::Identificador(nombre))
+                            Ok(Expresion::Identificador(nombre, (line, column)))
                         } else {
-                            Ok(Expresion::Identificador(format!("{}(...)", nombre)))
+                            Ok(Expresion::Identificador(format!("{}(...)", nombre), (line, column)))
                         }
                     }
                 },
                 TokenType::Identifier => {
                     let nombre = token.value.clone();
                     self.avanzar();
-                    Ok(Expresion::Identificador(nombre))
+                    Ok(Expresion::Identificador(nombre, (line, column)))
                 },
                 TokenType::Num => {
                     let valor = token.value.parse::<i32>().unwrap_or(0);
                     self.avanzar();
-                    Ok(Expresion::Numero(valor))
+                    Ok(Expresion::Numero(valor, (line, column)))
                 },
                 TokenType::BoolValue => {
                     let valor = token.value == "V";
                     self.avanzar();
-                    Ok(Expresion::Booleano(valor))
+                    Ok(Expresion::Booleano(valor, (line, column)))
                 },
                 TokenType::OpenedParenthesis => {
                     self.avanzar();
-                    // Para expresiones entre paréntesis, parsear como identificador compuesto
                     let mut contenido = Vec::new();
                     let mut parentesis_count = 1;
                     
@@ -863,7 +935,7 @@ impl<'a> Parser<'a> {
                     }
                     
                     let contenido_str = contenido.join(" ");
-                    Ok(Expresion::Identificador(format!("({})", contenido_str)))
+                    Ok(Expresion::Identificador(format!("({})", contenido_str), (line, column)))
                 },
                 _ => Err(CompilerError::new(
                     format!("Expresión simple no válida: {:?}", token.token_type),
@@ -876,7 +948,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Método parse_expresion que ahora simplemente delega a parse_expresion_simple
     fn parse_expresion(&mut self) -> Result<Expresion, CompilerError> {
         self.parse_expresion_simple()
     }

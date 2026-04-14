@@ -1,3 +1,4 @@
+use crate::lib::lexer::scanner::Lexer;
 use crate::lib::lexer::token::TokenType;
 use std::fs;
 

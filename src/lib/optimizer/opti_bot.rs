@@ -7,20 +7,23 @@ pub struct RobotPrototype {
     pub type_name: String,
     pub my_variables: Vec<Variable>,
     pub instructions: Vec<Instruccion>,
+    pub ubicacion: (usize, usize), // Ubicación donde se define el robot
 }
 
 impl RobotPrototype {
-    pub fn new(type_name: String) -> Self {
+    pub fn new(type_name: String, ubicacion: (usize, usize)) -> Self {
         RobotPrototype {
             type_name,
             my_variables: Vec::new(),
             instructions: Vec::new(),
+            ubicacion,
         }
     }
 
     pub fn load_robot_definition(&mut self, robot_def: &Robot) {
         self.my_variables = robot_def.variables.clone();
         self.instructions = robot_def.instrucciones.clone();
+        self.ubicacion = robot_def.ubicacion;
     }
 
     pub fn optimize_instructions(&mut self, instructions: &mut Vec<Instruccion>) {
@@ -28,34 +31,45 @@ impl RobotPrototype {
 
         instructions.iter_mut().for_each(|instr| {
             match instr {
-                Instruccion::Asignacion { variable, expresion_texto } => {
+                Instruccion::Asignacion { variable: _, expresion_texto, ubicacion: _ } => {
                     math_bot.process_ecuation(expresion_texto);
-                    *expresion_texto = math_bot.get_simplified_expression().unwrap();
+                    if let Some(simplified) = math_bot.get_simplified_expression() {
+                        *expresion_texto = simplified;
+                    }
                 },
-                Instruccion::Si { condicion_texto, entonces, sino } => {
+                Instruccion::Si { condicion_texto, entonces, sino, ubicacion: _ } => {
                     math_bot.process_ecuation(condicion_texto);
-                    *condicion_texto = math_bot.get_simplified_expression().unwrap();
+                    if let Some(simplified) = math_bot.get_simplified_expression() {
+                        *condicion_texto = simplified;
+                    }
                     self.optimize_instructions(entonces);
                     if !sino.is_empty() {
                         self.optimize_instructions(sino);
                     }
                 },
-                Instruccion::Mientras { condicion_texto, cuerpo } => {
+                Instruccion::Mientras { condicion_texto, cuerpo, ubicacion: _ } => {
                     math_bot.process_ecuation(condicion_texto);
-                    *condicion_texto = math_bot.get_simplified_expression().unwrap();
+                    if let Some(simplified) = math_bot.get_simplified_expression() {
+                        *condicion_texto = simplified;
+                    }
                     self.optimize_instructions(cuerpo);
                 },
-                Instruccion::Repetir { condicion_texto, cuerpo } => {
+                Instruccion::Repetir { condicion_texto, cuerpo, ubicacion: _ } => {
                     math_bot.process_ecuation(condicion_texto);
-                    *condicion_texto = math_bot.get_simplified_expression().unwrap();
+                    if let Some(simplified) = math_bot.get_simplified_expression() {
+                        *condicion_texto = simplified;
+                    }
                     self.optimize_instructions(cuerpo);
                 },
-                _ => {}
+                Instruccion::LlamadaFuncion { nombre: _, argumentos: _, ubicacion: _ } => {
+                    // Las llamadas a función no se optimizan por ahora
+                },
+                Instruccion::Elemental { .. } => {
+                    // Las instrucciones elementales no requieren optimización
+                }
             }
         });
-        
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +119,10 @@ impl Optimizer {
 
         // Procesar cada robot definido
         for robot_def in &program.robots_definidos {
-            let mut robot_prototype = RobotPrototype::new(robot_def.nombre.clone());
+            let mut robot_prototype = RobotPrototype::new(
+                robot_def.nombre.clone(),
+                robot_def.ubicacion
+            );
             
             // Cargar la definición del robot
             robot_prototype.load_robot_definition(robot_def);
@@ -113,7 +130,7 @@ impl Optimizer {
             self.info.robots.push(robot_prototype);
         }
 
-        // Aquí iría la lógica adicional de optimización
+        // Optimizar instrucciones de cada robot
        for robot in &mut self.info.robots {
             let mut instructions = robot.instructions.clone();
             robot.optimize_instructions(&mut instructions);
